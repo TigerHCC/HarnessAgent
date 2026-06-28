@@ -1,0 +1,134 @@
+OPENAI_HOST: http://192.168.86.44:8000
+OPENAI_BASE_PATH: v1/chat/completions
+OPENAI_API_KEY: sk-local
+OLLAMA_HOST: http://192.168.86.44:11434
+OLLAMA_TIMEOUT: 900
+GOOSE_STREAM_TIMEOUT: 900
+OLLAMA_STREAM_TIMEOUT: 900
+extensions:
+  developer:
+    enabled: true
+    type: builtin
+    name: developer
+    description: Write and edit files, and execute shell commands
+    display_name: Developer
+    timeout: null
+    bundled: true
+    available_tools: []
+  memory:
+    type: stdio
+    bundled: false
+    name: memory
+    enabled: true
+    cmd: /home/nvidia/.local/bin/goose
+    args:
+    - mcp
+    - memory
+    env_keys: []
+    timeout: 300
+    description: Example stdio MCP extension (goose bundled 'memory' server)
+  dtm:
+    type: streamable_http
+    bundled: false
+    name: dtm
+    enabled: true
+    uri: http://127.0.0.1:8765/mcp
+    headers: {}
+    env_keys: []
+    timeout: 600
+    description: PersonalKnowledge DTM Knowledge Agent (telemetry/triage/plugin/hw-spec RAG over ChromaDB) via streamable_http (mcp-proxy :8765)
+  analyze:
+    enabled: true
+    type: platform
+    name: analyze
+    description: 'Analyze code structure with tree-sitter: directory overviews, file details, symbol call graphs'
+    display_name: Analyze
+    bundled: true
+    available_tools: []
+  extensionmanager:
+    enabled: true
+    type: platform
+    name: Extension Manager
+    description: Enable extension management tools for discovering, enabling, and disabling extensions
+    display_name: Extension Manager
+    bundled: true
+    available_tools: []
+  code_execution:
+    enabled: false
+    type: platform
+    name: code_execution
+    description: Goose will make extension calls through code execution, saving tokens
+    display_name: Code Mode
+    bundled: true
+    available_tools: []
+  orchestrator:
+    enabled: false
+    type: platform
+    name: orchestrator
+    description: 'Manage agent sessions: list, view, start, send messages, interrupt, and stop agents'
+    display_name: Orchestrator
+    bundled: true
+    available_tools: []
+  tom:
+    enabled: true
+    type: platform
+    name: tom
+    description: Inject custom context into every turn via GOOSE_MOIM_MESSAGE_TEXT and GOOSE_MOIM_MESSAGE_FILE environment variables
+    display_name: Top Of Mind
+    bundled: true
+    available_tools: []
+  summarize:
+    enabled: false
+    type: platform
+    name: summarize
+    description: Load files/directories and get an LLM summary in a single call
+    display_name: Summarize
+    bundled: true
+    available_tools: []
+  apps:
+    enabled: true
+    type: platform
+    name: apps
+    description: Create and manage custom Goose apps through chat. Apps are HTML/CSS/JavaScript and run in sandboxed windows.
+    display_name: Apps
+    bundled: true
+    available_tools: []
+  skills:
+    enabled: true
+    type: platform
+    name: skills
+    description: Discover and provide skill instructions from filesystem and builtins
+    display_name: Skills
+    bundled: true
+    available_tools: []
+  chatrecall:
+    enabled: false
+    type: platform
+    name: chatrecall
+    description: Search past conversations and load session summaries for contextual memory
+    display_name: Chat Recall
+    bundled: true
+    available_tools: []
+  todo:
+    enabled: true
+    type: platform
+    name: todo
+    description: Enable a todo list for goose so it can keep track of what it is doing
+    display_name: Todo
+    bundled: true
+    available_tools: []
+  summon:
+    enabled: true
+    type: platform
+    name: summon
+    description: Load knowledge and delegate tasks to subagents
+    display_name: Summon
+    bundled: true
+    available_tools: []
+providers:
+  openai:
+    enabled: true
+    model: qwen-3.6-chat
+    configured: true
+active_provider: openai
+GOOSE_TELEMETRY_ENABLED: true

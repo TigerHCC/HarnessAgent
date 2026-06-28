@@ -18,8 +18,13 @@ Validated on the Windows 11 dev box on 2026-06-28, and re-validated the same day
 - `config.yaml` pointed at GB10, with **vLLM primary + Ollama fallback**
 - Extensions: `developer` (shell/file tools), `memory` (example stdio MCP server),
   and `dtm` (PersonalKnowledge DTM Knowledge Agent — telemetry/triage/plugin/hw-spec
-  RAG over ChromaDB, via `dtm_mcp.sh`)
+  RAG over ChromaDB). `dtm` connects over **streamable HTTP** (`http://127.0.0.1:8765/mcp`)
+  to the mcp-proxy, kept alive by the enabled `dtm-mcp-proxy` **system service** (survives
+  reboot); stdio `dtm_mcp.sh` is the no-dependency fallback. The DTM agent is also reachable
+  **remotely** over the same proxy (streamable HTTP / SSE) — see [`RUN.md`](RUN.md) §5
 - A tool-calling smoke test that proves it end-to-end
+- A **remote web UI** ([`goose_web/`](goose_web/)) — chat with the harness + DTM tools
+  from any browser on the LAN, with streaming and rendered tool-call cards
 - See [`RUN.md`](RUN.md) for how to launch the harness with DTM support
 
 ## Backends (on GB10)
@@ -94,6 +99,8 @@ Edit `config.yaml`: set `GOOSE_PROVIDER` to `openai` (vLLM) or `ollama`, and the
 |---|---|
 | `setup_goose.ps1` / `setup_goose.sh` | one-click installers for a new machine |
 | `dtm_mcp.sh` | launcher that exposes the PersonalKnowledge DTM agent as an MCP stdio server (venv + cwd handling) |
+| `goose_web/` | remote web UI — `server.py` (stdlib HTTP→`goose run` bridge), `index.html` (chat page), `serve_web.sh` (launcher) |
+| `workspace/` | working dir for files the agent creates when driven from the web UI |
 | `RUN.md` | how to launch the harness and use the DTM tools |
 | `config/goose_config.yaml` | reference copy of the working config (incl. `dtm` extension) |
 | `docker-compose.yaml` | GB10 vLLM deployment (chat + embed) |
@@ -108,3 +115,9 @@ Delete `~/.local/bin/goose` and the goose config dir
 - `goose bench` does **not** exist in 1.39.0 (the plan's §7 eval/ratchet idea needs a redesign).
 - The Goose install script is gated by Claude Code's permission classifier when run by the
   agent; these scripts are meant to be run by **you** directly (no such gate).
+- **Goose can silently rewrite `~/.config/goose/config.yaml` and drop the provider + stdio
+  extensions** → `error: No provider configured`. Mitigation (applied): a known-good copy is
+  kept at `~/.config/goose/config.yaml.bak`, and the live config is made **read-only**
+  (`chmod a-w`) — goose + all extensions run fine read-only, so the rewrite can't happen.
+  To recover: `cp ~/.config/goose/config.yaml.bak ~/.config/goose/config.yaml`. To edit
+  config: `chmod u+w`, edit, `chmod a-w`. Details in [`docs/install_results.md`](docs/install_results.md).

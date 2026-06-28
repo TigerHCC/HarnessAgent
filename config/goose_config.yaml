@@ -3,6 +3,12 @@
 # Architecture: Goose runs on Windows; models served remotely on GB10 (192.168.86.44).
 # Versioned copy: HarnessAgent/config/goose_config.yaml
 # Smoke-test results & rationale: HarnessAgent/docs/install_results.md
+#
+# IMPORTANT (durability): goose can silently rewrite the LIVE config and drop the provider +
+# stdio extensions -> "error: No provider configured". The live config is therefore kept
+# READ-ONLY (chmod a-w ~/.config/goose/config.yaml) with a known-good backup at
+# ~/.config/goose/config.yaml.bak. To recover: cp the .bak over the live file. To edit the
+# live config: chmod u+w, edit, chmod a-w. See docs/install_results.md "Re-verification".
 
 # ============================================================
 # ACTIVE PROVIDER: vLLM (OpenAI-compatible) on GB10 :8000
@@ -57,18 +63,23 @@ extensions:
     timeout: 300
     description: Example stdio MCP extension (goose bundled 'memory' server) for wiring validation
 
-  # PersonalKnowledge DTM Knowledge Agent exposed as an MCP stdio server.
-  # Launched via HarnessAgent/dtm_mcp.sh, which runs `python -m dtm_agent mcp`
-  # with the project venv + cwd=PersonalKnowledge (does NOT modify that repo).
+  # PersonalKnowledge DTM Knowledge Agent exposed as an MCP server.
+  # Transport: streamable_http via mcp-proxy on :8765 (endpoint /mcp; Goose 1.39 dropped SSE).
+  # The proxy is run by the enabled SYSTEM service dtm-mcp-proxy.service
+  # (/etc/systemd/system/, source PersonalKnowledge/dtm_agent/dtm-mcp-proxy.service) — so it
+  # survives reboot (WantedBy=multi-user.target) and auto-restarts (Restart=on-failure).
+  # Manage: systemctl status|restart dtm-mcp-proxy ; journalctl -u dtm-mcp-proxy -f
+  # No-dependency fallback: set `type: stdio` + `cmd: /home/nvidia/Downloads/HarnessAgent/dtm_mcp.sh`
+  #   (args: [mcp]) — Goose then spawns the agent on demand, no proxy needed.
   # Tools: dtm_query, dtm_telemetry_lookup, dtm_triage, dtm_data_feature,
   #        dtm_hw_spec, dtm_health (RAG over ChromaDB: telemetry/issues/plugins/hw-specs).
   dtm:
-    type: stdio
+    type: streamable_http
     bundled: false
     name: dtm
     enabled: true
-    cmd: /home/nvidia/Downloads/HarnessAgent/dtm_mcp.sh
-    args: []
+    uri: http://127.0.0.1:8765/mcp
+    headers: {}
     env_keys: []
     timeout: 600
-    description: PersonalKnowledge DTM Knowledge Agent (telemetry/triage/plugin/hw-spec RAG over ChromaDB) via MCP stdio
+    description: PersonalKnowledge DTM Knowledge Agent (telemetry/triage/plugin/hw-spec RAG over ChromaDB) via streamable_http (mcp-proxy :8765)

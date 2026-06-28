@@ -130,9 +130,11 @@ Notes / deviations:
   classifier-gated here (it was on the Windows run; install was manual there).
 - **Goose rewrites `config.yaml` on first run**, normalizing it and adding bundled
   *platform* extensions (`analyze`, `todo`, `summon`, `skills`, etc.) plus a `providers:`
-  / `active_provider:` block. This is expected; the hand-written `developer`/`memory`/`dtm`
-  stdio extensions are preserved. The versioned `config/goose_config.yaml` stays the
-  human-readable template.
+  / `active_provider:` block. This is *usually* harmless and the hand-written
+  `developer`/`memory`/`dtm` stdio extensions are normally preserved — **but on
+  re-verification the rewrite was once observed to drop the provider keys AND the stdio
+  extensions entirely, breaking the harness** (see "Re-verification" below). The versioned
+  `config/goose_config.yaml` stays the human-readable template.
 - `goose bench` still absent in 1.39.0 (unchanged from above).
 
 ## DTM Knowledge Agent wired in as MCP (plan §6/§7 — was "future", now DONE)
@@ -157,6 +159,79 @@ Verification (through Goose, not just transport):
 | KB-grounded answer (not base-model fabrication) | ✅ returned `Battery_and_Power_Insight`, `BatteryCollector` (collection), `BatteryAlerter` (alerting), protobuf fields (`CycleCount`, `TemperatureInKelvin`, `VoltageInmV`, …) |
 
 See [`../RUN.md`](../RUN.md) for launch instructions.
+
+## Remote / SSE access for the DTM agent (validated 2026-06-28)
+The DTM agent gained a network transport: its stdio MCP server is wrapped by
+[`mcp-proxy`](https://github.com/sparfenyuk/mcp-proxy) (`dtm_agent/run_mcp_proxy.sh`,
+serves `0.0.0.0:8765`), exposing **SSE** `/sse` and **streamable HTTP** `/mcp`.
+
+| Check | Result |
+|---|---|
+| Proxy up | ✅ `:8765` bound, `/sse` returns `text/event-stream` |
+| Direct MCP-over-SSE (mcp SDK) | ✅ `initialize` + `tools/list` (6 tools) + `dtm_health` |
+| Goose over the proxy | ✅ `type: streamable_http` → `▸ dtm_telemetry_lookup dtm`, KB-grounded |
+
+**Important finding — Goose 1.39 dropped SSE.** Configuring `type: sse` yields
+`Warning: 'dtm': SSE is unsupported, migrate to streamable_http` and the extension is
+skipped. The working Goose remote config is `type: streamable_http`, `uri:
+http://<host>:8765/mcp`. (The `/sse` endpoint still works for other MCP clients.)
+The SSE snippet in `dtm_agent/SETUP.md` was corrected to `streamable_http` accordingly.
+
+**Local now uses streamable_http (updated 2026-06-28).** The GB10 box's `dtm` extension was
+switched from stdio to **`type: streamable_http`, `uri: http://127.0.0.1:8765/mcp`**, pointing
+at the local mcp-proxy. Rationale: the proxy keeps the DTM agent warm, so queries skip the
+per-call stdio warmup (reranker + routing centroids, ~167 s cold) and run against the
+always-on backend (~110 s). Verified end-to-end through Goose — `dtm_health` plus a
+KB-grounded `dtm_telemetry_lookup` (`BatteryDynamicData`/`BatteryAnalyzer`, fields `CycleCount`,
+`FullChargeCapacityInmAh`, …) — with **no SSE/parse warnings**.
+
+Persistence is already handled by an **enabled system service** `dtm-mcp-proxy.service`
+(`/etc/systemd/system/`, source `PersonalKnowledge/dtm_agent/dtm-mcp-proxy.service`):
+`WantedBy=multi-user.target` ⇒ **survives reboot with no user-linger/sudo**, and
+`Restart=on-failure` ⇒ auto-recovers from crashes. Manage with
+`systemctl status|restart dtm-mcp-proxy` and `journalctl -u dtm-mcp-proxy -f`.
+
+**Trade-off vs stdio:** streamable_http adds a runtime dependency on that proxy — if the
+service is down, `dtm` is unavailable (Goose itself keeps working). To revert to the
+self-contained, no-dependency setup, set the `dtm` extension back to `type: stdio`,
+`cmd: HarnessAgent/dtm_mcp.sh` (Goose then spawns the agent on demand). The `/sse` endpoint
+still exists on the proxy for non-Goose MCP clients; Goose must use `/mcp` (SSE was dropped in 1.39).
+
+## Re-verification 2026-06-28 — config self-strip risk + read-only hardening
+A full §6 re-run on the GB10 box (version · vLLM tool-parser probe · Q&A · developer
+`write` · MCP `memory` round-trip · `dtm` stack via `dtm_health`) **passed on every check**.
+During the re-run a real fragility surfaced and was fixed:
+
+- **Goose silently stripped its own `~/.config/goose/config.yaml`.** A rewrite normalized it
+  to *platform-extensions-only* (3751 → 2850 B), dropping the provider keys (`OPENAI_HOST`,
+  `active_provider`, …) **and** the `memory` + `dtm` stdio extensions. Symptom afterward:
+  every `goose run` fails with `error: No provider configured. Run 'goose configure' first.`
+  (This corrects the optimistic "stdio extensions are preserved" note above — they usually
+  are, but were dropped entirely this once.)
+- **Trigger not reproduced.** Several single *and* concurrent runs afterward left the config
+  byte-for-byte untouched — so treat this as a **latent, unpredictable risk**, not a one-off.
+  (Same "several clean runs" pattern preceded the break, so clean runs are not a safety signal.)
+- **Recovery** — a known-good copy is kept at `~/.config/goose/config.yaml.bak`:
+  ```bash
+  cp ~/.config/goose/config.yaml.bak ~/.config/goose/config.yaml
+  chmod a-w ~/.config/goose/config.yaml
+  ```
+- **Prevention (applied) — make the active config read-only:** `chmod a-w ~/.config/goose/config.yaml`.
+  Verified that goose and all three extensions (`developer`, `memory`, `dtm`) run normally
+  under a read-only config and **no rewrite occurs** — this converts the intermittent risk
+  into "can't happen." To intentionally edit config later: `chmod u+w …`, edit, `chmod a-w …`.
+
+Re-verification results (all green, post-restore, with config read-only):
+
+| Check | Result |
+|---|---|
+| `goose --version` | `1.39.0` |
+| vLLM tool-parser probe | `finish_reason: tool_calls`, clean `tool_calls`, `content: null` |
+| Q&A | `17 × 23 = 391` |
+| Tool execution (developer) | ✅ `write`/`shell` fired (model picks its own file path — e.g. wrote to an absolute `/tmp/...` rather than cwd) |
+| MCP `memory` round-trip | ✅ stored + recalled `BLUEFIN` across separate sessions |
+| `dtm` stack (`dtm_health`) | ✅ DTM Agent + Ollama + ChromaDB healthy (4 collections, ~21.8k chunks) |
+| Config integrity under read-only | ✅ unchanged across single + concurrent runs |
 
 ## Rollback (Linux / GB10-native)
 `rm ~/.local/bin/goose` and `rm -rf ~/.config/goose`; remove the `dtm` extension or just

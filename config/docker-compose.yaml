@@ -1,0 +1,74 @@
+# vLLM services for PersonalKnowledge RAG system
+#
+# GPU utilization budget (single-GPU deployment):
+#   qwen-chat  0.65 + qwen-embed  0.20 = 0.85 total (15% buffer for OS/CUDA overhead)
+#   Adjust --gpu-memory-utilization if VRAM is tight.
+#
+# Note: --enable-chunked-prefill with --reasoning-parser requires vLLM >= 0.6.0.
+#       Remove --enable-chunked-prefill if on an older release.
+
+services:
+  qwen-chat:
+    image: vllm/vllm-openai:latest
+    runtime: nvidia
+    ipc: host
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - HF_HUB_OFFLINE=0
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - ${HF_HOME:-/home/nvidia/.cache/huggingface}:/root/.cache/huggingface
+    ports:
+      - "8000:8000"
+    # Qwen3.6-35B-A3B-FP8: MoE reasoning model with extended thinking.
+    # served-model-name must match config.yaml generation.model
+    # Goose tool-calling: qwen-3.6-chat emits Qwen XML tool format
+    # (<function=...><parameter=...>), so the parser MUST be qwen3_coder.
+    # `hermes` parses only JSON <tool_call>{...}</tool_call> and does NOT work here.
+    command: >-
+      --model Qwen/Qwen3.6-35B-A3B-FP8
+      --served-model-name qwen-3.6-chat
+      --quantization fp8
+      --reasoning-parser qwen3
+      --enable-auto-tool-choice
+      --tool-call-parser qwen3_coder
+      --gpu-memory-utilization 0.65
+      --enable-chunked-prefill
+      --max-num-seqs 256
+      --disable-log-stats
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  qwen-embed:
+    image: vllm/vllm-openai:latest
+    runtime: nvidia
+    ipc: host
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - HF_HUB_OFFLINE=0
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - ${HF_HOME:-/home/nvidia/.cache/huggingface}:/root/.cache/huggingface
+    ports:
+      - "8001:8000"
+    # Qwen3-Embedding-4B: 2560-dim — identical dimensions to Ollama qwen3-embedding:latest,
+    # so switching from Ollama to this model does NOT require a ChromaDB rebuild.
+    # served-model-name must match config.yaml embedding.model
+    command: >-
+      --model Qwen/Qwen3-Embedding-4B
+      --served-model-name qwen-3-4b-embed
+      --gpu-memory-utilization 0.20
+      --max-num-seqs 512
+      --disable-log-stats
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

@@ -43,6 +43,62 @@ GOOSE_MODE=auto goose run --no-session -t "Use dtm_hw_spec to look up SMBIOS Typ
 #   use dtm_health to check the DTM agent
 ```
 
+## 4. Remote web UI (use it from a browser)
+For remote use, run the bundled web front end and open it from any machine on the LAN:
+```bash
+cd ~/Downloads/HarnessAgent/goose_web
+./serve_web.sh                            # binds 0.0.0.0:8799
+# recommended on a shared network — require a token:
+GOOSE_WEB_TOKEN=pick-a-secret ./serve_web.sh
+```
+Then browse to **`http://192.168.86.44:8799`** (this box's LAN IP). The page streams
+responses and renders tool-call cards; the same `developer` / `memory` / `dtm` tools are
+available, and files the agent creates land in `HarnessAgent/workspace/`.
+
+> ⚠ With `GOOSE_MODE=auto` the agent runs shell/file commands on this box. Bound to
+> `0.0.0.0`, anyone who can reach the port can do so — set `GOOSE_WEB_TOKEN` or bind
+> `GOOSE_WEB_HOST=127.0.0.1`. See [`goose_web/README.md`](goose_web/README.md).
+
+## 5. Remote DTM access from another machine (SSE / streamable HTTP)
+The DTM agent's stdio MCP server can be exposed over the network with
+[`mcp-proxy`](https://github.com/sparfenyuk/mcp-proxy) (already installed in the
+PersonalKnowledge venv). It serves **both** transports on `:8765`:
+
+| Transport | URL (from a remote host) |
+|---|---|
+| Streamable HTTP | `http://192.168.86.44:8765/mcp` |
+| SSE | `http://192.168.86.44:8765/sse` |
+
+**Start the proxy** (on this GB10 box):
+```bash
+cd ~/Downloads/PersonalKnowledge
+./dtm_agent/run_mcp_proxy.sh                 # binds 0.0.0.0:8765
+```
+For an always-on service (survives reboot/logout) install the bundled unit — **this
+needs sudo, so it's a step only you can run**:
+```bash
+sudo cp dtm_agent/dtm-mcp-proxy.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now dtm-mcp-proxy
+```
+
+**Connect a remote Goose** — in that machine's `~/.config/goose/config.yaml`:
+```yaml
+extensions:
+  dtm:
+    type: streamable_http        # NOT sse — goose 1.39 rejects sse ("migrate to streamable_http")
+    name: dtm
+    uri: http://192.168.86.44:8765/mcp
+    enabled: true
+    timeout: 600
+```
+> Verified 2026-06-28: a remote-style `streamable_http` connection drives the real DTM
+> tools (`▸ dtm_telemetry_lookup dtm`, KB-grounded). The `/sse` endpoint also works for
+> non-Goose MCP clients (Claude Desktop, custom). The local harness on this box keeps
+> using **stdio** (no proxy needed) — the proxy is only for *other* machines.
+
+> ⚠ The proxy binds `0.0.0.0` with **no authentication** (same as the web UI on :8799).
+> Only expose it on a trusted LAN/VPN, or front it with a reverse proxy that adds auth/TLS.
+
 ## Notes
 - A successful DTM call shows a `▸ dtm_telemetry_lookup dtm` block in the output —
   that confirms it routed through the DTM RAG, not the base `qwen-3.6-chat` model.
