@@ -1,0 +1,20 @@
+{
+  "_comment": "Central config for the Goose Harness web UI. Read by BOTH server.py and server.ps1. The 'backends' URLs drive the health/status panel and the displayed provider host; goose's ACTUAL model provider is configured separately in goose's own config (~/.config/goose/config.yaml on Linux/macOS, %APPDATA%\\Block\\goose\\config\\config.yaml on Windows). Any GOOSE_WEB_* environment variable overrides the matching value here.",
+
+  "host": "0.0.0.0",
+  "port": 8799,
+  "token": "",
+  "workspace": "../workspace",
+  "max_turns": 50,
+  "timeout_seconds": 1800,
+  "goose_bin": "",
+
+  "model": "qwen-3.6-chat",
+  "provider_label": "vLLM (OpenAI-compat)",
+
+  "backends": [
+    { "name": "vLLM chat",  "url": "http://192.168.86.44:8000",  "health_path": "/v1/models", "role": "chat"  },
+    { "name": "vLLM embed", "url": "http://192.168.86.44:8001",  "health_path": "/v1/models", "role": "embed" },
+    { "name": "Ollama",     "url": "http://192.168.86.44:11434", "health_path": "/api/tags",  "role": "ollama" }
+  ]
+}

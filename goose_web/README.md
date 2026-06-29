@@ -24,22 +24,70 @@ Session context carries across turns via goose's own `-n`/`-r` session store; th
 first turn of a session omits `-r` (goose errors if you resume a session that
 doesn't exist yet), later turns add it.
 
+There are two interchangeable implementations with an identical HTTP contract:
+- **`server.py`** — Linux/macOS/Windows, needs Python 3 (stdlib only).
+- **`server.ps1`** — Windows-native, needs no Python (uses .NET `HttpListener`).
+  The PowerShell port feeds the message to goose on **stdin** (`goose run … -i -`)
+  so arbitrary message text never has to be quoted for the Windows command line.
+
+## Configuration (`config.json`)
+Both servers read **`config.json`** in this directory (override the path with
+`GOOSE_WEB_CONFIG`). It sets the backend addresses shown in the status panel and
+the rest of the knobs:
+
+```json
+{
+  "host": "0.0.0.0", "port": 8799, "token": "", "workspace": "../workspace",
+  "max_turns": 50, "timeout_seconds": 1800, "goose_bin": "",
+  "model": "qwen-3.6-chat", "provider_label": "vLLM (OpenAI-compat)",
+  "backends": [
+    { "name": "vLLM chat",  "url": "http://192.168.86.44:8000",  "health_path": "/v1/models", "role": "chat"  },
+    { "name": "vLLM embed", "url": "http://192.168.86.44:8001",  "health_path": "/v1/models", "role": "embed" },
+    { "name": "Ollama",     "url": "http://192.168.86.44:11434", "health_path": "/api/tags",  "role": "ollama" }
+  ]
+}
+```
+Edit the `backends` URLs to point the health panel at your vLLM chat / vLLM embed /
+Ollama servers; the `role:"chat"` backend supplies the provider host shown in the UI.
+**Note:** these addresses only drive the web UI's health panel + displayed provider —
+goose's *actual* model provider is configured in goose's own config
+(`~/.config/goose/config.yaml`, or `%APPDATA%\Block\goose\config\config.yaml` on Windows).
+Any `GOOSE_WEB_*` environment variable overrides the matching `config.json` value.
+
 ## Run it
+**Linux / macOS:**
 ```bash
 ./serve_web.sh                              # 0.0.0.0:8799  (LAN)
 GOOSE_WEB_TOKEN=secret ./serve_web.sh       # require ?token / X-Goose-Token  (recommended on LAN)
 GOOSE_WEB_HOST=127.0.0.1 ./serve_web.sh     # local-only
 GOOSE_WEB_PORT=9000 ./serve_web.sh
 ```
+
+**Windows (PowerShell):**
+```powershell
+.\serve_web.ps1                                   # 0.0.0.0:8799 (LAN)
+$env:GOOSE_WEB_TOKEN='secret'; .\serve_web.ps1    # require a token (recommended on LAN)
+$env:GOOSE_WEB_HOST='127.0.0.1'; .\serve_web.ps1  # local-only (no admin needed)
+# if unsigned scripts are blocked:
+powershell -ExecutionPolicy Bypass -File .\serve_web.ps1
+```
+> **Windows LAN bind:** `HttpListener` on `0.0.0.0` needs an elevated shell **or** a
+> one-time URL reservation (run once, elevated):
+> `netsh http add urlacl url=http://+:8799/ user=%USERNAME%`.
+> Binding `127.0.0.1` needs neither. The script prints this hint if the bind fails.
+
 Then open `http://<gb10-ip>:8799` (this box is `192.168.86.44`).
 
-| Env | Default | Purpose |
+| Env (overrides `config.json`) | Default | Purpose |
 |---|---|---|
 | `GOOSE_WEB_HOST` | `0.0.0.0` | bind address |
 | `GOOSE_WEB_PORT` | `8799` | port (8765 is used by another service on this box) |
 | `GOOSE_WEB_TOKEN` | _(none)_ | if set, `/api/chat` requires the token |
 | `GOOSE_WEB_WORKSPACE` | `../workspace` | agent working dir (where `developer` writes files) |
 | `GOOSE_WEB_MAXTURNS` | `50` | `--max-turns` per turn |
+| `GOOSE_WEB_TIMEOUT` | `1800` | hard wall-clock kill (seconds) per turn |
+| `GOOSE_WEB_MODEL` | from config | model name shown in the UI |
+| `GOOSE_WEB_CONFIG` | `./config.json` | path to the config file |
 | `GOOSE_BIN` | auto | path to the goose binary |
 
 ## Endpoints

@@ -17,12 +17,23 @@ with cwd = workspace dir and GOOSE_MODE from the request ("auto" runs tools,
 "chat" is model-only). The first turn for a session omits -r (goose errors if
 you -r a session that does not exist yet); later turns add -r to resume context.
 
-Env knobs (all optional):
+Configuration (config.json next to this file -- shared with server.ps1):
+  Sets model, provider_label, and the backends list (vLLM chat / vLLM embed /
+  Ollama URLs + health paths) shown in the status panel, plus host/port/token/
+  workspace/max_turns/timeout/goose_bin. NOTE: backends here only drive the web
+  UI's health panel + displayed provider host; goose's REAL model provider lives
+  in goose's own config (~/.config/goose/config.yaml). Point at a different file
+  with GOOSE_WEB_CONFIG=/path/to.json.
+
+Env knobs (override config.json; all optional):
   GOOSE_WEB_HOST       bind address              (default 0.0.0.0)
   GOOSE_WEB_PORT       port                      (default 8799)
   GOOSE_WEB_TOKEN      shared secret; if set, /api/chat requires it
   GOOSE_WEB_WORKSPACE  agent working directory   (default ../workspace)
   GOOSE_WEB_MAXTURNS   --max-turns per turn      (default 50)
+  GOOSE_WEB_TIMEOUT    hard wall-clock kill (s)  (default 1800)
+  GOOSE_WEB_MODEL      model name shown in UI
+  GOOSE_WEB_CONFIG     path to the config.json   (default: ./config.json)
   GOOSE_BIN            path to goose binary      (default: which goose / ~/.local/bin/goose)
 """
 from __future__ import annotations
@@ -40,16 +51,63 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 HOME = Path.home()
 
-HOST = os.environ.get("GOOSE_WEB_HOST", "0.0.0.0")
-PORT = int(os.environ.get("GOOSE_WEB_PORT", "8799"))
-TOKEN = os.environ.get("GOOSE_WEB_TOKEN", "").strip()
-WORKSPACE = Path(os.environ.get("GOOSE_WEB_WORKSPACE", str(HERE.parent / "workspace"))).resolve()
-MAX_TURNS = os.environ.get("GOOSE_WEB_MAXTURNS", "50")
-MAX_WALL_SECONDS = int(os.environ.get("GOOSE_WEB_TIMEOUT", "1800"))
+# ---- central config (config.json next to this script); env vars override it ----
+# Shared with the PowerShell port (server.ps1) -- keep the schema in sync.
+_DEFAULTS = {
+    "host": "0.0.0.0",
+    "port": 8799,
+    "token": "",
+    "workspace": str(HERE.parent / "workspace"),
+    "max_turns": 50,
+    "timeout_seconds": 1800,
+    "goose_bin": "",
+    "model": "qwen-3.6-chat",
+    "provider_label": "vLLM (OpenAI-compat)",
+    "backends": [
+        {"name": "vLLM chat", "url": "http://192.168.86.44:8000", "health_path": "/v1/models", "role": "chat"},
+        {"name": "vLLM embed", "url": "http://192.168.86.44:8001", "health_path": "/v1/models", "role": "embed"},
+        {"name": "Ollama", "url": "http://192.168.86.44:11434", "health_path": "/api/tags", "role": "ollama"},
+    ],
+}
+
+
+def _load_web_config() -> dict:
+    """Defaults <- config.json <- GOOSE_WEB_* env (env wins, for serve_web.sh back-compat)."""
+    cfg = dict(_DEFAULTS)
+    path = Path(os.environ.get("GOOSE_WEB_CONFIG", str(HERE / "config.json")))
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict):
+            cfg.update({k: v for k, v in loaded.items() if not k.startswith("_")})
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError) as e:
+        print(f"[goose_web] WARNING: could not read {path}: {e}; using defaults/env")
+    env = os.environ.get
+    cfg["host"] = env("GOOSE_WEB_HOST", cfg["host"])
+    cfg["port"] = int(env("GOOSE_WEB_PORT", cfg["port"]))
+    cfg["token"] = str(env("GOOSE_WEB_TOKEN", cfg["token"])).strip()
+    cfg["workspace"] = env("GOOSE_WEB_WORKSPACE", cfg["workspace"])
+    cfg["max_turns"] = str(env("GOOSE_WEB_MAXTURNS", cfg["max_turns"]))
+    cfg["timeout_seconds"] = int(env("GOOSE_WEB_TIMEOUT", cfg["timeout_seconds"]))
+    cfg["model"] = env("GOOSE_WEB_MODEL", cfg["model"])
+    if env("GOOSE_BIN"):
+        cfg["goose_bin"] = env("GOOSE_BIN")
+    return cfg
+
+
+WEBCFG = _load_web_config()
+
+HOST = WEBCFG["host"]
+PORT = int(WEBCFG["port"])
+TOKEN = str(WEBCFG["token"]).strip()
+WORKSPACE = Path(WEBCFG["workspace"]).resolve()
+MAX_TURNS = str(WEBCFG["max_turns"])
+MAX_WALL_SECONDS = int(WEBCFG["timeout_seconds"])
 
 
 def _find_goose() -> str:
-    cand = os.environ.get("GOOSE_BIN")
+    cand = WEBCFG.get("goose_bin") or os.environ.get("GOOSE_BIN")
     if cand and os.access(cand, os.X_OK):
         return cand
     for p in (HOME / ".local/bin/goose", Path("/usr/local/bin/goose")):
@@ -65,27 +123,14 @@ def _find_goose() -> str:
 
 GOOSE_BIN = _find_goose()
 
-# ---- read display info from the live goose config (light parse, no yaml dep) ----
-def _read_config_info() -> dict:
-    cfg = HOME / ".config/goose/config.yaml"
-    model, chat_host, ollama_host = "qwen-3.6-chat", "http://192.168.86.44:8000", "http://192.168.86.44:11434"
-    try:
-        text = cfg.read_text(encoding="utf-8", errors="ignore")
-        m = re.search(r"^\s*OPENAI_HOST:\s*(\S+)", text, re.M)
-        if m:
-            chat_host = m.group(1)
-        m = re.search(r"^\s*OLLAMA_HOST:\s*(\S+)", text, re.M)
-        if m:
-            ollama_host = m.group(1)
-        m = re.search(r"^\s*(?:GOOSE_MODEL|model):\s*(\S+)", text, re.M)
-        if m:
-            model = m.group(1)
-    except OSError:
-        pass
-    return {"model": model, "chat_host": chat_host, "ollama_host": ollama_host}
 
+def _chat_url() -> str:
+    """The backend whose role is 'chat' (for the displayed provider host)."""
+    for b in WEBCFG["backends"]:
+        if b.get("role") == "chat":
+            return b["url"].rstrip("/")
+    return WEBCFG["backends"][0]["url"].rstrip("/") if WEBCFG["backends"] else ""
 
-CFG = _read_config_info()
 
 # Cache the goose version once at startup (advisor: do not fork a 278 MB binary per health poll).
 def _goose_version() -> str:
@@ -144,18 +189,16 @@ def _url_ok(url: str, timeout: float = 4.0) -> bool:
 
 
 def _health() -> dict:
-    chat = CFG["chat_host"].rstrip("/")
-    ollama = CFG["ollama_host"].rstrip("/")
-    backends = [
-        {"name": "vLLM chat", "detail": chat, "ok": _url_ok(chat + "/v1/models")},
-        {"name": "vLLM embed", "detail": "http://localhost:8001", "ok": _url_ok("http://localhost:8001/v1/models")},
-        {"name": "Ollama", "detail": ollama, "ok": _url_ok(ollama + "/api/tags")},
-    ]
+    backends = []
+    for b in WEBCFG["backends"]:
+        url = b["url"].rstrip("/")
+        hp = b.get("health_path", "/")
+        backends.append({"name": b.get("name", url), "detail": url, "ok": _url_ok(url + hp)})
     return {
         "ok": True,
         "version": GOOSE_VERSION,
-        "model": CFG["model"],
-        "provider": "vLLM (OpenAI-compat) @ " + chat,
+        "model": WEBCFG["model"],
+        "provider": WEBCFG["provider_label"] + " @ " + _chat_url(),
         "workspace": str(WORKSPACE),
         "token_required": bool(TOKEN),
         "backends": backends,
@@ -356,7 +399,7 @@ def main():
     print("=" * 64)
     print(f"  Goose Harness Web  ->  http://{HOST}:{PORT}")
     print(f"  goose     : {GOOSE_VERSION}  ({GOOSE_BIN})")
-    print(f"  model     : {CFG['model']}  via {CFG['chat_host']}")
+    print(f"  model     : {WEBCFG['model']}  via {_chat_url()}")
     print(f"  workspace : {WORKSPACE}")
     print(f"  token     : {'required' if TOKEN else 'NONE'}")
     print("=" * 64)
