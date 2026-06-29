@@ -114,3 +114,18 @@ extensions:
     env_keys: []
     timeout: 120
     description: Windows SRUM + live system resource usage (CPU/mem/net/power) via local elevated MCP server (127.0.0.1:8777)
+
+  # Windows Event Log (LOCAL elevated server on this box).
+  # Server: HarnessAgent/mcp/windows_eventlog/ (start_eventlog_mcp.ps1 as admin, or install_task.ps1).
+  # Tools: list_channels, query_events, error_summary (system errors),
+  #        user_activity (Security/user behavior, needs admin), get_event, eventlog_health.
+  eventlog:
+    type: streamable_http
+    bundled: false
+    name: eventlog
+    enabled: true
+    uri: http://127.0.0.1:8778/mcp
+    headers: {}
+    env_keys: []
+    timeout: 120
+    description: Windows Event Log (system errors + user behavior) via local elevated MCP server (127.0.0.1:8778)
