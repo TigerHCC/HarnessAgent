@@ -153,6 +153,9 @@ TOOLS = [
     {"group": "dtm", "name": "dtm_data_feature", "desc": "deep-dive a DTM plugin"},
     {"group": "dtm", "name": "dtm_hw_spec", "desc": "hardware / platform spec lookup"},
     {"group": "dtm", "name": "dtm_health", "desc": "DTM agent health"},
+    {"group": "pk", "name": "search_kb", "desc": "semantic search over the personal KB (outlook/jira/confluence/onenote/markdown/summaries)"},
+    {"group": "pk", "name": "get_document", "desc": "fetch the full text of a KB markdown file"},
+    {"group": "pk", "name": "list_sources", "desc": "per-source chunk counts in the KB"},
 ]
 
 # ---- per-session state: which sessions exist (=> use -r), and a serialize lock ----

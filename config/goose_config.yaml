@@ -85,18 +85,21 @@ extensions:
     description: PersonalKnowledge DTM Knowledge Agent (telemetry/triage/plugin/hw-spec RAG over ChromaDB) via streamable_http (mcp-proxy :8765)
 
   # PersonalKnowledge KB MCP -- stateless semantic retrieval (search_kb /
-  # get_document / list_sources) over the pk_* ChromaDB collections. Stateless +
-  # fast (first call = one embedding on vLLM :8001), so stdio is a good fit -- no
-  # warm proxy needed. Enable/refresh via HarnessAgent/mcp/enable_pk_mcp.sh
-  # (launcher: HarnessAgent/mcp/pk_mcp.sh). For streamable_http instead, run the
-  # pk-mcp-proxy (:8766) and set type: streamable_http + uri: http://127.0.0.1:8766/mcp.
+  # get_document / list_sources) over the pk_* ChromaDB collections.
+  # Transport: streamable_http via the pk-mcp-proxy on :8766 (endpoint /mcp), run by
+  # the pk-mcp-proxy system service (source PersonalKnowledge/scripts/pk-mcp-proxy.service).
+  # Enable/switch via HarnessAgent/mcp/enable_pk_mcp.sh:
+  #   PK_MCP_REPLACE=1 PK_MCP_URI=http://127.0.0.1:8766/mcp ./enable_pk_mcp.sh
+  # No-dependency fallback (PK is fast/stateless, so stdio works too -- first call is
+  # just one embedding on vLLM :8001):
+  #   PK_MCP_REPLACE=1 ./enable_pk_mcp.sh        # -> stdio via mcp/qb10_pk_mcp.sh
   pk:
-    type: stdio
+    type: streamable_http
     bundled: false
     name: pk
     enabled: true
-    cmd: /home/nvidia/Downloads/HarnessAgent/mcp/qb10_pk_mcp.sh
-    args: []
+    uri: http://127.0.0.1:8766/mcp
+    headers: {}
     env_keys: []
     timeout: 600
-    description: PersonalKnowledge KB MCP (search_kb / get_document / list_sources) via stdio
+    description: PersonalKnowledge KB MCP (search_kb / get_document / list_sources) via streamable_http (pk-mcp-proxy :8766)
