@@ -320,7 +320,7 @@ $worker = {
                 $raw = $task.Result
                 if ($null -eq $raw) { break }                 # EOF
 
-                $line = $reAnsi.Replace([string]$raw, '').Replace([char]13, '').TrimEnd("`n")
+                $line = $reAnsi.Replace([string]$raw, '').Replace("`r", '').TrimEnd("`n")
                 if ($reMascot.IsMatch($line)) { continue }
 
                 $mt = $reTool.Match($line)
