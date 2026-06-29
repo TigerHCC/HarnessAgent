@@ -1,5 +1,5 @@
 {
-  "_comment": "Central config for the Goose Harness web UI. Read by BOTH server.py and server.ps1. The 'backends' URLs drive the health/status panel and the displayed provider host; goose's ACTUAL model provider is configured separately in goose's own config (~/.config/goose/config.yaml on Linux/macOS, %APPDATA%\\Block\\goose\\config\\config.yaml on Windows). Any GOOSE_WEB_* environment variable overrides the matching value here.",
+  "_comment": "Central config for the Goose Harness web UI. Read by BOTH server.py and server.ps1. The 'backends' URLs drive the health/status panel and the displayed provider host; goose's ACTUAL model provider is configured separately in goose's own config (~/.config/goose/config.yaml on Linux/macOS, %APPDATA%\\Block\\goose\\config\\config.yaml on Windows). Any GOOSE_WEB_* environment variable overrides the matching value here. The sidebar tool list is NOT stored here: it is live-discovered from goose's own config.yaml (each enabled extension is handshaked over MCP for its real tools, refreshed ~90s); set GOOSE_CONFIG to point at a non-default config.yaml.",
 
   "host": "0.0.0.0",
   "port": 8799,

@@ -7,7 +7,8 @@ from any browser on the LAN.
 
 Endpoints
   GET  /                 the web UI (index.html, same directory)
-  GET  /api/health       JSON: model + backend status + tool list (cached version)
+  GET  /api/health       JSON: model + backend status + live-discovered MCP
+                         extensions + flat tool list (served from a cached snapshot)
   POST /api/chat         streams NDJSON events; body {"session","message","mode"}
                          events: {type:text|tool_start|tool_args|done|error, ...}
 
@@ -35,6 +36,8 @@ Env knobs (override config.json; all optional):
   GOOSE_WEB_MODEL      model name shown in UI
   GOOSE_WEB_CONFIG     path to the config.json   (default: ./config.json)
   GOOSE_BIN            path to goose binary      (default: which goose / ~/.local/bin/goose)
+  GOOSE_CONFIG         path to goose's config.yaml used for live MCP tool
+                       discovery (default: OS path, see _goose_config_path)
 """
 from __future__ import annotations
 
@@ -47,6 +50,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlparse
 
 HERE = Path(__file__).resolve().parent
 HOME = Path.home()
@@ -143,20 +147,359 @@ def _goose_version() -> str:
 
 GOOSE_VERSION = _goose_version()
 
-# Tools surfaced by the configured extensions (for the sidebar).
-TOOLS = [
-    {"group": "developer", "name": "shell / write / edit", "desc": "run commands, read & edit files"},
-    {"group": "memory", "name": "remember / retrieve", "desc": "persistent key/value memory (MCP)"},
-    {"group": "dtm", "name": "dtm_query", "desc": "auto-route a DTM question"},
-    {"group": "dtm", "name": "dtm_telemetry_lookup", "desc": "datatypes/fields/plugins for a data need"},
-    {"group": "dtm", "name": "dtm_triage", "desc": "triage a Windows issue from telemetry + Jira history"},
-    {"group": "dtm", "name": "dtm_data_feature", "desc": "deep-dive a DTM plugin"},
-    {"group": "dtm", "name": "dtm_hw_spec", "desc": "hardware / platform spec lookup"},
-    {"group": "dtm", "name": "dtm_health", "desc": "DTM agent health"},
-    {"group": "pk", "name": "search_kb", "desc": "semantic search over the personal KB (outlook/jira/confluence/onenote/markdown/summaries)"},
-    {"group": "pk", "name": "get_document", "desc": "fetch the full text of a KB markdown file"},
-    {"group": "pk", "name": "list_sources", "desc": "per-source chunk counts in the KB"},
+# ---------------------------------------------------------------------------
+# Live MCP tool discovery
+# ---------------------------------------------------------------------------
+# The sidebar tool list is discovered LIVE from goose's own config.yaml instead
+# of being hardcoded. We parse the `extensions:` block (a tiny YAML subset -- no
+# PyYAML, stdlib only), then handshake each enabled extension for its real tool
+# set:
+#   builtin (developer) -> curated static list (developer is in-process and NOT
+#                          handshakeable: `goose mcp developer` is invalid)
+#   stdio               -> spawn cmd+args, newline-delimited JSON-RPC handshake
+#   streamable_http     -> urllib POST initialize / initialized / tools/list
+# Results are cached behind a lock; /api/health serves the snapshot and NEVER
+# blocks on a handshake. A daemon thread refreshes every REFRESH_SECONDS.
+
+REFRESH_SECONDS = 90  # background re-discovery interval
+
+# developer is in-process (not an MCP server); curated to match its real tools.
+_BUILTIN_DEVELOPER_TOOLS = [
+    {"name": "shell", "description": "Run a shell command"},
+    {"name": "text_editor", "description": "View, write, and edit files"},
 ]
+
+_disc_lock = threading.Lock()
+_disc_extensions: list[dict] = []  # /api/health "extensions" (config order)
+_disc_tools: list[dict] = []       # /api/health "tools" (flat, grouped by ext)
+
+
+def _goose_config_path() -> Path:
+    """Path to goose's config.yaml (source of truth for connected extensions)."""
+    override = os.environ.get("GOOSE_CONFIG")
+    if override:
+        return Path(override)
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or str(HOME / "AppData" / "Roaming")
+        return Path(base) / "Block" / "goose" / "config" / "config.yaml"
+    return HOME / ".config" / "goose" / "config.yaml"
+
+
+def _unquote(s: str) -> str:
+    s = s.strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+        return s[1:-1]
+    return s
+
+
+def _parse_goose_extensions(text: str) -> list[dict]:
+    """Minimal YAML-subset parser for the `extensions:` subtree of config.yaml.
+
+    Returns extension dicts in config order, each with a subset of:
+    id, type, enabled (bool), name, cmd, uri, args (list). Enabled filtering is
+    left to the caller. Only the `extensions:` block is parsed; everything else
+    is ignored. Assumes goose's 2-space indent, full-line `#` comments, and
+    unquoted scalar values (no inline comments on values).
+    """
+    exts: list[dict] = []
+    cur: dict | None = None
+    in_block = False
+    in_args = False
+    args_indent = -1
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        if not in_block:
+            if indent == 0 and stripped == "extensions:":
+                in_block = True
+            continue
+        if indent == 0:  # next column-0 key ends the extensions block
+            break
+        if in_args:
+            if stripped.startswith("-") and indent > args_indent:
+                if cur is not None:
+                    cur.setdefault("args", []).append(_unquote(stripped[1:].strip()))
+                continue
+            in_args = False  # list ended; reinterpret this line below
+        if indent == 2 and stripped.endswith(":"):
+            cur = {"id": stripped[:-1].strip()}
+            exts.append(cur)
+            continue
+        if indent >= 4 and cur is not None:
+            if stripped == "args:" or stripped.startswith("args:"):
+                cur["args"] = []
+                in_args = True
+                args_indent = indent
+                continue
+            key, sep, val = stripped.partition(":")
+            if not sep:
+                continue
+            key = key.strip()
+            val = val.strip()
+            if key in ("type", "name", "cmd", "uri"):
+                cur[key] = _unquote(val)
+            elif key == "enabled":
+                cur["enabled"] = (val.lower() == "true")
+    return exts
+
+
+def _host_port(uri: str) -> str:
+    """host:port for an http uri (the `detail` field); "" if unparseable."""
+    try:
+        return urlparse(uri).netloc or ""
+    except Exception:
+        return ""
+
+
+def _short_desc(desc: str) -> str:
+    """Trim an MCP tool description to its first sentence or ~80 chars."""
+    s = re.sub(r"\s+", " ", (desc or "")).strip()
+    if not s:
+        return ""
+    m = re.search(r"\. ", s)
+    if m:
+        s = s[: m.start() + 1]
+    if len(s) > 80:
+        s = s[:79].rstrip() + "…"
+    return s
+
+
+def _extract_jsonrpc(raw: str) -> dict | None:
+    """Parse a JSON-RPC reply that is either raw JSON or an SSE `data:` line."""
+    raw = raw.strip()
+    if not raw:
+        return None
+    if raw[0] == "{":
+        try:
+            return json.loads(raw)
+        except ValueError:
+            pass
+    for line in raw.splitlines():
+        line = line.strip()
+        if line.startswith("data:"):
+            payload = line[5:].strip()
+            if payload.startswith("{"):
+                try:
+                    return json.loads(payload)
+                except ValueError:
+                    continue
+    return None
+
+
+class _MCPRedirect(urllib.request.HTTPRedirectHandler):
+    """Follow 307/308 on POST, preserving method+body.
+
+    The local srum/eventlog MCP servers answer `/mcp` with a 307 to `/mcp/`
+    (Starlette redirect_slashes); urllib refuses to re-POST those by default.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if code in (307, 308):
+            return urllib.request.Request(
+                newurl, data=req.data,
+                headers=dict(req.header_items()), method=req.get_method())
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_HTTP_OPENER = urllib.request.build_opener(_MCPRedirect)
+
+
+def _http_post(uri: str, headers: dict, payload: bytes, timeout: float):
+    return _HTTP_OPENER.open(
+        urllib.request.Request(uri, data=payload, headers=headers, method="POST"),
+        timeout=timeout,
+    )
+
+
+def _discover_streamable_http(uri: str, timeout: float = 9.0) -> list[dict]:
+    """initialize -> capture Mcp-Session-Id -> initialized -> tools/list."""
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+    init = json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "goose_web", "version": "1"},
+        },
+    }).encode("utf-8")
+    with _http_post(uri, headers, init, timeout) as r:
+        session_id = r.getheader("Mcp-Session-Id")
+        endpoint = r.geturl() or uri  # honor a trailing-slash redirect for later calls
+        r.read()
+    call_headers = dict(headers)
+    if session_id:
+        call_headers["Mcp-Session-Id"] = session_id
+    # initialized notification -- no response expected; ignore errors
+    try:
+        note = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}).encode("utf-8")
+        with _http_post(endpoint, call_headers, note, timeout) as r:
+            r.read()
+    except Exception:
+        pass
+    body = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}).encode("utf-8")
+    with _http_post(endpoint, call_headers, body, timeout) as r:
+        raw = r.read().decode("utf-8", "replace")
+    data = _extract_jsonrpc(raw)
+    if data is None:
+        raise ValueError("unparseable tools/list response")
+    return (data.get("result") or {}).get("tools") or []
+
+
+def _discover_stdio(cmd: str, args: list[str], timeout: float = 20.0):
+    """Spawn cmd+args, run a newline JSON-RPC handshake, return tools or None.
+
+    Drains stderr asynchronously (pipe-deadlock guard) and kills the child when
+    done. Returns a (possibly empty) tool list on success, or None on failure.
+    """
+    if not cmd:
+        return None
+    try:
+        proc = subprocess.Popen(
+            [cmd] + list(args),
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, bufsize=1,
+        )
+    except Exception:
+        return None
+
+    def _drain(stream):
+        try:
+            for _ in iter(stream.readline, ""):
+                pass
+        except Exception:
+            pass
+
+    threading.Thread(target=_drain, args=(proc.stderr,), daemon=True).start()
+
+    result: dict = {}
+
+    def _run():
+        try:
+            init = json.dumps({
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "goose_web", "version": "1"},
+                },
+            })
+            note = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            lst = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+            proc.stdin.write(init + "\n")
+            proc.stdin.write(note + "\n")
+            proc.stdin.write(lst + "\n")
+            proc.stdin.flush()
+            for raw_line in iter(proc.stdout.readline, ""):
+                line = raw_line.strip()
+                if not line:
+                    continue
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                res = msg.get("result")
+                if isinstance(res, dict) and "tools" in res:
+                    result["tools"] = res.get("tools") or []
+                    return
+        except Exception:
+            pass
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    try:
+        proc.kill()
+    except Exception:
+        pass
+    return result.get("tools")
+
+
+def _discover_extension(e: dict) -> tuple[str, str, list[dict]]:
+    """Return (status, detail, tools) for one parsed, enabled extension dict."""
+    typ = e.get("type", "")
+    ext_id = e.get("id", "")
+    if typ == "builtin":
+        return "builtin", "", (_BUILTIN_DEVELOPER_TOOLS if ext_id == "developer" else [])
+    if typ == "streamable_http":
+        detail = _host_port(e.get("uri", ""))
+        try:
+            return "ok", detail, _discover_streamable_http(e.get("uri", ""))
+        except Exception:
+            return "offline", detail, []
+    if typ == "stdio":
+        res = _discover_stdio(e.get("cmd", ""), e.get("args") or [])
+        if res is None:
+            return "offline", "", []
+        return "ok", "", res
+    return "offline", "", []
+
+
+def _build_snapshot(handshake: bool) -> tuple[list[dict], list[dict]]:
+    """Build (extensions, tools) from config.yaml.
+
+    With handshake=False this is the cheap startup seed: stdio/http extensions get
+    status 'checking' and 0 tools (builtin is always resolved, it needs no I/O).
+    With handshake=True each non-builtin extension is queried for its real tools.
+    """
+    try:
+        parsed = _parse_goose_extensions(_goose_config_path().read_text(encoding="utf-8"))
+    except Exception as ex:  # noqa: BLE001
+        print(f"[goose_web] WARNING: could not read goose config.yaml: {ex}")
+        parsed = []
+    exts_meta: list[dict] = []
+    tools: list[dict] = []
+    for e in parsed:
+        if not e.get("enabled"):
+            continue
+        typ = e.get("type", "")
+        ext_id = e.get("id", "")
+        name = e.get("name") or ext_id
+        if typ == "builtin" or handshake:
+            status, detail, discovered = _discover_extension(e)
+        else:  # seed pass: don't block startup on stdio/http handshakes
+            status = "checking"
+            detail = _host_port(e.get("uri", "")) if typ == "streamable_http" else ""
+            discovered = []
+        for t in discovered:
+            if not isinstance(t, dict):
+                continue
+            nm = t.get("name")
+            if not nm:
+                continue
+            tools.append({"group": ext_id, "name": nm, "desc": _short_desc(t.get("description", ""))})
+        cnt = sum(1 for t in discovered if isinstance(t, dict) and t.get("name"))
+        exts_meta.append({
+            "id": ext_id, "name": name, "transport": typ,
+            "status": status, "count": cnt, "detail": detail,
+        })
+    return exts_meta, tools
+
+
+def _refresh_discovery(handshake: bool = True) -> None:
+    exts_meta, tools = _build_snapshot(handshake)
+    with _disc_lock:
+        _disc_extensions[:] = exts_meta
+        _disc_tools[:] = tools
+
+
+def _discovery_loop() -> None:
+    while True:
+        try:
+            _refresh_discovery(handshake=True)
+        except Exception as ex:  # noqa: BLE001
+            print(f"[goose_web] discovery refresh error: {ex}")
+        time.sleep(REFRESH_SECONDS)
+
+
+def _start_discovery() -> None:
+    """Seed the cache synchronously (cheap), then handshake in the background."""
+    _refresh_discovery(handshake=False)
+    threading.Thread(target=_discovery_loop, name="mcp-discovery", daemon=True).start()
 
 # ---- per-session state: which sessions exist (=> use -r), and a serialize lock ----
 _seen_lock = threading.Lock()
@@ -197,6 +540,9 @@ def _health() -> dict:
         url = b["url"].rstrip("/")
         hp = b.get("health_path", "/")
         backends.append({"name": b.get("name", url), "detail": url, "ok": _url_ok(url + hp)})
+    with _disc_lock:  # serve the live-discovery snapshot; never block on a handshake
+        extensions = [dict(x) for x in _disc_extensions]
+        tools = [dict(x) for x in _disc_tools]
     return {
         "ok": True,
         "version": GOOSE_VERSION,
@@ -205,7 +551,8 @@ def _health() -> dict:
         "workspace": str(WORKSPACE),
         "token_required": bool(TOKEN),
         "backends": backends,
-        "tools": TOOLS,
+        "extensions": extensions,
+        "tools": tools,
     }
 
 
@@ -399,6 +746,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     WORKSPACE.mkdir(parents=True, exist_ok=True)
+    _start_discovery()  # seed tool cache now; handshake extensions in the background
     bind_public = HOST not in ("127.0.0.1", "localhost", "::1")
     print("=" * 64)
     print(f"  Goose Harness Web  ->  http://{HOST}:{PORT}")

@@ -116,6 +116,222 @@ $IndexPath = Join-Path $Here 'index.html'
 $Shared = [hashtable]::Synchronized(@{ seen = @{}; locks = @{} })
 
 # ----------------------------------------------------------------------------
+# Live MCP tool discovery
+# ----------------------------------------------------------------------------
+# The sidebar tool list is discovered LIVE from goose's own config.yaml instead
+# of being hardcoded. We parse the `extensions:` block (a tiny YAML subset), then
+# handshake each enabled extension for its real tool set:
+#   builtin (developer) -> curated static list (developer is in-process and NOT
+#                          handshakeable: `goose mcp developer` is invalid)
+#   stdio               -> spawn cmd+args, newline-delimited JSON-RPC handshake
+#   streamable_http     -> HttpWebRequest POST initialize / initialized / tools/list
+# A daemon runspace fills $Shared.exts/$Shared.tools now and refreshes every
+# $DISCOVERY_REFRESH_SEC; Build-Health only reads the cached snapshot.
+$DISCOVERY_REFRESH_SEC = 90
+
+function Resolve-GooseConfig {
+    if ($env:GOOSE_CONFIG) { return $env:GOOSE_CONFIG }
+    if ($env:APPDATA) { return (Join-Path $env:APPDATA 'Block\goose\config\config.yaml') }
+    if ($HOME)        { return (Join-Path $HOME '.config/goose/config.yaml') }
+    return 'config.yaml'
+}
+$GooseConfigPath = Resolve-GooseConfig
+
+# All discovery helpers live in this string so they can be injected verbatim into
+# the discoverer runspace (runspaces do not inherit the parent's functions). We
+# also dot-source it into the main scope below to seed the snapshot synchronously.
+$DiscoveryFns = @'
+function Get-DeveloperTools {
+    return @(
+        @{ name = 'shell';       description = 'Run a shell command' },
+        @{ name = 'text_editor'; description = 'View, write, and edit files' }
+    )
+}
+
+function Short-Desc($s) {
+    if (-not $s) { return '' }
+    $t = ([string]$s).Trim() -replace '\s+', ' '
+    $dot = $t.IndexOf('. ')
+    if ($dot -gt 0 -and $dot -lt 80) { return $t.Substring(0, $dot + 1) }
+    if ($t.Length -gt 80) { return $t.Substring(0, 77) + '...' }
+    return $t
+}
+
+# Minimal YAML-subset parser for goose's `extensions:` block only.
+function Parse-GooseExtensions($path) {
+    $exts = @()
+    if (-not (Test-Path -LiteralPath $path)) { return $exts }
+    $lines = Get-Content -LiteralPath $path -Encoding UTF8
+    $inExt = $false; $cur = $null; $inArgs = $false
+    foreach ($raw in $lines) {
+        $line = ([string]$raw).Replace("`t", '    ')
+        if ($line.Trim() -eq '' -or $line.TrimStart().StartsWith('#')) { continue }
+        $indent = $line.Length - $line.TrimStart(' ').Length
+        if ($indent -eq 0) {
+            if ($line -match '^extensions:\s*$') { $inExt = $true }
+            elseif ($inExt) { break }   # left the extensions block
+            continue
+        }
+        if (-not $inExt) { continue }
+        $content = $line.Trim()
+        if ($indent -le 2 -and $content -match '^([A-Za-z0-9_.\-]+):\s*$') {
+            if ($cur) { $exts += $cur }
+            $cur = @{ id = $Matches[1]; type = ''; enabled = $true; name = $Matches[1]; cmd = ''; args = @(); uri = '' }
+            $inArgs = $false
+            continue
+        }
+        if (-not $cur) { continue }
+        if ($inArgs) {
+            if ($content -match '^-\s*(.+)$') { $cur.args += $Matches[1].Trim(); continue }
+            $inArgs = $false
+        }
+        if ($content -match '^args:\s*$') { $inArgs = $true; $cur.args = @(); continue }
+        if ($content -match '^([A-Za-z0-9_]+):\s*(.*)$') {
+            $k = $Matches[1]; $v = $Matches[2].Trim()
+            switch ($k) {
+                'type'    { $cur.type = $v }
+                'enabled' { $cur.enabled = ($v -eq 'true') }
+                'name'    { if ($v) { $cur.name = $v } }
+                'cmd'     { $cur.cmd = $v }
+                'uri'     { $cur.uri = $v }
+            }
+        }
+    }
+    if ($cur) { $exts += $cur }
+    return $exts
+}
+
+function ConvertFrom-McpBody($text) {
+    if (-not $text) { return $null }
+    $t = [string]$text
+    if ($t.TrimStart().StartsWith('{')) { $jsonStr = $t }
+    else {
+        $m = [regex]::Match($t, 'data:\s*(\{.*\})')
+        if ($m.Success) { $jsonStr = $m.Groups[1].Value } else { return $null }
+    }
+    try { return ($jsonStr | ConvertFrom-Json) } catch { return $null }
+}
+
+function Invoke-McpHttp($uri, $bodyObj, $sessionId, $timeoutMs = 10000) {
+    $json  = $bodyObj | ConvertTo-Json -Depth 8 -Compress
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+    $req = [System.Net.HttpWebRequest]::Create($uri)
+    $req.Method = 'POST'; $req.ContentType = 'application/json'; $req.Accept = 'application/json, text/event-stream'
+    $req.Timeout = $timeoutMs; $req.ReadWriteTimeout = $timeoutMs; $req.Proxy = $null
+    if ($sessionId) { $req.Headers['Mcp-Session-Id'] = $sessionId }
+    $req.ContentLength = $bytes.Length
+    $rs = $req.GetRequestStream(); $rs.Write($bytes, 0, $bytes.Length); $rs.Close()
+    $resp = $req.GetResponse()
+    $sid = $resp.Headers['Mcp-Session-Id']
+    $sr = New-Object System.IO.StreamReader($resp.GetResponseStream())
+    $body = $sr.ReadToEnd(); $sr.Close(); $resp.Close()
+    return @{ sid = $sid; text = $body }
+}
+
+# streamable_http MCP handshake: initialize -> initialized -> tools/list.
+function Get-McpHttpTools($uri) {
+    $init = @{ jsonrpc = '2.0'; id = 1; method = 'initialize'; params = @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'goose_web'; version = '1' } } }
+    $r1  = Invoke-McpHttp $uri $init $null
+    $sid = $r1.sid
+    try { [void](Invoke-McpHttp $uri @{ jsonrpc = '2.0'; method = 'notifications/initialized' } $sid) } catch {}
+    $r2  = Invoke-McpHttp $uri @{ jsonrpc = '2.0'; id = 2; method = 'tools/list' } $sid
+    $obj = ConvertFrom-McpBody $r2.text
+    $tools = @()
+    if ($obj -and $obj.result -and $obj.result.tools) {
+        foreach ($t in $obj.result.tools) { $tools += @{ name = [string]$t.name; description = [string]$t.description } }
+    }
+    return $tools
+}
+
+# stdio MCP handshake over a spawned process (newline-delimited JSON-RPC).
+function Get-McpStdioTools($exe, $argList) {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $exe; $psi.Arguments = (@($argList) -join ' ')
+    $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
+    $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $errTask = $p.StandardError.ReadToEndAsync()   # drain stderr async (avoid deadlock)
+    $si = $p.StandardInput
+    $si.WriteLine('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"goose_web","version":"1"}}}')
+    $si.WriteLine('{"jsonrpc":"2.0","method":"notifications/initialized"}')
+    $si.WriteLine('{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
+    $si.Flush()
+    $deadline = (Get-Date).AddSeconds(25)
+    $tools = @()
+    while ((Get-Date) -lt $deadline) {
+        $task = $p.StandardOutput.ReadLineAsync()
+        if (-not $task.Wait(1000)) { continue }
+        $line = $task.Result
+        if ($null -eq $line) { break }
+        if ($line -notmatch '^\s*\{') { continue }
+        try { $obj = $line | ConvertFrom-Json } catch { continue }
+        if ($obj.id -eq 2 -and $obj.result -and $obj.result.tools) {
+            foreach ($t in $obj.result.tools) { $tools += @{ name = [string]$t.name; description = [string]$t.description } }
+            break
+        }
+    }
+    try { $si.Close() } catch {}
+    try { if (-not $p.HasExited) { $p.Kill() } } catch {}
+    return $tools
+}
+
+# Discover one extension -> @{ ext = <health entry>; tools = <flat rows> }.
+function Discover-Extension($e) {
+    $detail = ''; $status = 'offline'; $etools = @()
+    if ($e.type -eq 'builtin') {
+        $status = 'builtin'; $etools = @(Get-DeveloperTools)
+    } elseif ($e.type -eq 'stdio') {
+        try { $etools = @(Get-McpStdioTools $e.cmd $e.args); $status = 'ok' } catch { $status = 'offline'; $etools = @() }
+    } elseif ($e.type -eq 'streamable_http' -or $e.type -eq 'sse') {
+        if ($e.uri) { try { $u = [System.Uri]$e.uri; $detail = "$($u.Host):$($u.Port)" } catch {} }
+        try { $etools = @(Get-McpHttpTools $e.uri); $status = 'ok' } catch { $status = 'offline'; $etools = @() }
+    } else {
+        $status = 'unknown'
+    }
+    $rows = @()
+    foreach ($t in $etools) { $rows += @{ group = $e.id; name = $t.name; desc = (Short-Desc $t.description) } }
+    return @{ ext = @{ id = $e.id; name = $e.name; transport = $e.type; status = $status; count = @($etools).Count; detail = $detail }; tools = $rows }
+}
+'@
+
+# Seed the snapshot synchronously (cheap config parse) so /api/health is never
+# empty; the daemon below replaces it with real tool counts within seconds.
+. ([scriptblock]::Create($DiscoveryFns))
+$seedExts = @()
+try {
+    foreach ($e in (Parse-GooseExtensions $GooseConfigPath)) {
+        if (-not $e.enabled) { continue }
+        $detail = ''
+        if ($e.uri) { try { $u = [System.Uri]$e.uri; $detail = "$($u.Host):$($u.Port)" } catch {} }
+        $status = if ($e.type -eq 'builtin') { 'builtin' } else { 'checking' }
+        $seedExts += @{ id = $e.id; name = $e.name; transport = $e.type; status = $status; count = 0; detail = $detail }
+    }
+} catch {}
+[System.Threading.Monitor]::Enter($Shared.SyncRoot)
+try { $Shared.exts = $seedExts; $Shared.tools = @() } finally { [System.Threading.Monitor]::Exit($Shared.SyncRoot) }
+
+# The discoverer runspace: handshake every enabled extension, publish the snapshot
+# under the shared lock, then refresh on an interval. Never touched by /api/health.
+$discoverer = {
+    param($configPath, $refreshSec, $shared, $fnsText)
+    Invoke-Expression $fnsText
+    while ($true) {
+        $exts = @(); $tools = @()
+        try {
+            foreach ($e in (Parse-GooseExtensions $configPath)) {
+                if (-not $e.enabled) { continue }
+                $d = Discover-Extension $e
+                $exts += $d.ext
+                foreach ($r in $d.tools) { $tools += $r }
+            }
+        } catch {}
+        [System.Threading.Monitor]::Enter($shared.SyncRoot)
+        try { $shared.exts = $exts; $shared.tools = $tools } finally { [System.Threading.Monitor]::Exit($shared.SyncRoot) }
+        Start-Sleep -Seconds $refreshSec
+    }
+}
+
+# ----------------------------------------------------------------------------
 # compiled regexes -- built from code points so file encoding can't corrupt the
 # non-ASCII markers (these objects are thread-safe for matching, shared by all workers)
 # ----------------------------------------------------------------------------
@@ -155,6 +371,7 @@ Write-Host "  Goose Harness Web (PowerShell)  ->  $prefix"
 Write-Host "  goose     : $GooseVersion  ($GooseBin)"
 Write-Host "  model     : $($CFG.model)"
 Write-Host "  workspace : $Workspace"
+Write-Host "  tools     : live discovery every ${DISCOVERY_REFRESH_SEC}s <- $GooseConfigPath"
 Write-Host "  token     : $(if ($Token) { 'required' } else { 'NONE' })"
 Write-Host ("=" * 64)
 if ($bindPublic -and -not $Token) {
@@ -208,24 +425,20 @@ $worker = {
             $hp = if ($b.health_path) { [string]$b.health_path } else { '/' }
             $backends += @{ name = [string]$b.name; detail = $u; ok = (Test-Url ($u + $hp)) }
         }
-        $tools = @(
-            @{ group = 'developer'; name = 'shell / write / edit';  desc = 'run commands, read & edit files' }
-            @{ group = 'memory';    name = 'remember / retrieve';   desc = 'persistent key/value memory (MCP)' }
-            @{ group = 'dtm';       name = 'dtm_query';             desc = 'auto-route a DTM question' }
-            @{ group = 'dtm';       name = 'dtm_telemetry_lookup';  desc = 'datatypes/fields/plugins for a data need' }
-            @{ group = 'dtm';       name = 'dtm_triage';            desc = 'triage a Windows issue from telemetry + Jira history' }
-            @{ group = 'dtm';       name = 'dtm_data_feature';      desc = 'deep-dive a DTM plugin' }
-            @{ group = 'dtm';       name = 'dtm_hw_spec';           desc = 'hardware / platform spec lookup' }
-            @{ group = 'dtm';       name = 'dtm_health';            desc = 'DTM agent health' }
-            @{ group = 'pk';        name = 'search_kb';             desc = 'semantic search over the personal KB' }
-            @{ group = 'pk';        name = 'get_document';          desc = 'fetch the full text of a KB markdown file' }
-            @{ group = 'pk';        name = 'list_sources';          desc = 'per-source chunk counts in the KB' }
-        )
+        # tool list is live-discovered in a background runspace; read the cached
+        # snapshot only (never block here). $shared.exts/.tools are seeded at startup.
+        $shared = $S.shared
+        $exts = @(); $tools = @()
+        [System.Threading.Monitor]::Enter($shared.SyncRoot)
+        try {
+            if ($shared.exts)  { $exts  = @($shared.exts) }
+            if ($shared.tools) { $tools = @($shared.tools) }
+        } finally { [System.Threading.Monitor]::Exit($shared.SyncRoot) }
         return @{
             ok = $true; version = $S.gooseVer; model = [string]$cfg.model
             provider = ([string]$cfg.provider_label + ' @ ' + (Get-ChatUrl $cfg))
             workspace = [string]$S.workspace; token_required = [bool]$S.token
-            backends = $backends; tools = $tools
+            backends = $backends; extensions = $exts; tools = $tools
         }
     }
 
@@ -433,12 +646,19 @@ for ($i = 0; $i -lt $N; $i++) {
     $jobs += @{ ps = $ps; handle = $ps.BeginInvoke() }
 }
 
+# background MCP discovery -- its own runspace (the worker pool is saturated by the
+# blocking accept loops). Does the real handshakes now, then refreshes every 90s.
+$discoPs = [powershell]::Create()
+[void]$discoPs.AddScript($discoverer.ToString()).AddArgument($GooseConfigPath).AddArgument($DISCOVERY_REFRESH_SEC).AddArgument($Shared).AddArgument($DiscoveryFns)
+$discoHandle = $discoPs.BeginInvoke()
+
 try {
     while ($listener.IsListening) { Start-Sleep -Seconds 2 }
 } finally {
     Write-Host "`nshutting down."
     try { $listener.Stop() } catch {}
     try { $listener.Close() } catch {}
+    try { $discoPs.Stop() } catch {}; try { $discoPs.Dispose() } catch {}
     foreach ($j in $jobs) { try { $j.ps.Stop() } catch {}; try { $j.ps.Dispose() } catch {} }
     try { $pool.Close() } catch {}
 }

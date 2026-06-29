@@ -87,12 +87,33 @@ Then open `http://<gb10-ip>:8799` (this box is `192.168.86.44`).
 | `GOOSE_WEB_MAXTURNS` | `50` | `--max-turns` per turn |
 | `GOOSE_WEB_TIMEOUT` | `1800` | hard wall-clock kill (seconds) per turn |
 | `GOOSE_WEB_MODEL` | from config | model name shown in the UI |
-| `GOOSE_WEB_CONFIG` | `./config.json` | path to the config file |
+| `GOOSE_WEB_CONFIG` | `./config.json` | path to the web config file |
+| `GOOSE_CONFIG` | OS default | goose's `config.yaml` used for live MCP tool discovery |
 | `GOOSE_BIN` | auto | path to the goose binary |
+
+## Live MCP tool discovery
+The sidebar **Tools** list is discovered **live** from goose's own
+`config.yaml` — it is never hardcoded. On startup the server parses the
+`extensions:` block, then handshakes each enabled extension over MCP for its real
+tool set and caches the result (refreshed every ~90s; `/api/health` only ever
+reads the cache, so a slow/offline server never blocks it):
+
+- **builtin** (`developer`) — in-process, not handshakeable, so a curated static
+  entry (`shell`, `text_editor`) is shown.
+- **stdio** (e.g. `memory` = `goose mcp memory`) — spawned, newline-delimited
+  JSON-RPC `initialize`→`tools/list`.
+- **streamable_http** (e.g. `dtm`, `srum`, `eventlog`) — POST `initialize`
+  (echoing the `Mcp-Session-Id`) → `tools/list`; both `application/json` and SSE
+  `text/event-stream` replies are handled.
+
+Each `/api/health` response now includes an `extensions[]` array
+(`id, name, transport, status, count, detail`) alongside the flat `tools[]`; the
+sidebar shows a per-extension status dot + tool count, and marks unreachable
+servers `offline`. Point discovery at a non-default config with `GOOSE_CONFIG`.
 
 ## Endpoints
 - `GET /` — the chat page
-- `GET /api/health` — model + backend status + tool list (version cached at startup)
+- `GET /api/health` — model + backend status + **live-discovered MCP extensions + tool list** (snapshot cache, version cached at startup)
 - `POST /api/chat` — `{session, message, mode}` → streamed NDJSON events
 
 ## ⚠ Security
