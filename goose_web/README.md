@@ -101,6 +101,10 @@ With `GOOSE_MODE=auto`, the agent auto-runs shell/file tools on this box. Bound 
 shared network set `GOOSE_WEB_TOKEN`, or bind to `127.0.0.1`. The server prints a
 loud warning when it binds publicly without a token.
 
+**Privacy:** `server.py` / `server.ps1` set `GOOSE_TELEMETRY_ENABLED=false` on every goose
+subprocess, and `serve_web.{sh,ps1}` export it — so goose uploads **no** usage telemetry
+(it otherwise POSTs metadata to PostHog). See the repo `README.md` → "Privacy / telemetry".
+
 ## DTM speed note (optional)
 Each web message spawns a fresh `goose run`, so every DTM query pays the DTM cold-start
 (reranker + routing-centroid warmup) — measured ~167 s vs ~110 s against an always-on

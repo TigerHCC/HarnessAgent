@@ -237,3 +237,41 @@ Re-verification results (all green, post-restore, with config read-only):
 `rm ~/.local/bin/goose` and `rm -rf ~/.config/goose`; remove the `dtm` extension or just
 `rm HarnessAgent/dtm_mcp.sh`. PersonalKnowledge (venv, dtm_agent, chromadb, DTMKnowledge)
 is untouched throughout.
+
+## Telemetry / privacy — telemetry is OFF by policy (verified)
+**Finding:** with `GOOSE_TELEMETRY_ENABLED: true` (goose's default), goose POSTs usage
+metadata to a hosted **PostHog** endpoint (`us.i.posthog.com`, hardcoded project key
+`phc_…`). Captured properties (from the binary): `install_method, is_resumed,
+session_number, days_since_install, model, GOOSE_MODE, setting_mode, setting_max_turns,
+extensions, db_schema_version, total_sessions, total_tokens, session_started, session_name`.
+That is usage **metadata** (incl. model name, your extension names, and session names) —
+**not** your prompts, the model's responses, file contents, or KB data, which only ever go
+to your configured provider (here the **local** vLLM/Ollama on GB10, so they stay on-box).
+
+OpenTelemetry (`OTEL_*`) and Langfuse instrumentation also exist but are **dormant** — they
+export nothing unless you set `OTEL_EXPORTER_OTLP_ENDPOINT` / `LANGFUSE_*` (we don't). The
+100+ provider hosts in the binary (`api.anthropic.com`, …) are only contacted if you
+configure that provider. `goose update` checks GitHub only on demand.
+
+**Verified with `strace -f -e trace=connect`:**
+- telemetry **ON** → DNS lookup + external connections to PostHog/AWS (`us.i.posthog.com`
+  resolves to the exact IPs goose connected to, incl. `:443`).
+- telemetry **OFF** (`GOOSE_TELEMETRY_ENABLED=false`) → **zero** external connections, **zero**
+  DNS lookups; only the local model (`192.168.86.44:8000`) + MCP proxies (`127.0.0.1:8765/8766`).
+
+**Enforcement in this repo (defense in depth):**
+1. Live config + `config/goose_config.yaml` + `config/gb10_config.yaml` set
+   `GOOSE_TELEMETRY_ENABLED: false`, and the live config is kept **read-only** so goose
+   can't flip it back on a rewrite.
+2. The installers (`setup_goose.{sh,ps1}`) generate the config with telemetry **false**.
+3. Every script that runs goose exports `GOOSE_TELEMETRY_ENABLED=false` (**env overrides
+   config**, so it holds even against a writable/stale config): `goose_web/server.py`,
+   `server.ps1`, `serve_web.{sh,ps1}`, `mcp/enable_pk_mcp.sh`, `mcp/enable_dtm_mcp.sh`.
+
+**Check it yourself any time:**
+```bash
+strace -f -e trace=connect -o /tmp/gc.log -- \
+  bash -c 'goose run --no-session --max-turns 2 -t "hi" >/dev/null 2>&1'
+grep 'connect(' /tmp/gc.log | grep -oE 'inet_addr\("[0-9.]+"\)' \
+  | grep -vE '127\.|192\.168\.86\.44'    # <- expect NO output
+```

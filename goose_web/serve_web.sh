@@ -9,5 +9,6 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="$HOME/.local/bin:$PATH"
+export GOOSE_TELEMETRY_ENABLED=false   # privacy: no goose usage-telemetry upload (env overrides config)
 command -v goose >/dev/null 2>&1 || { echo "goose not found on PATH (~/.local/bin)"; exit 1; }
 exec python3 "$HERE/server.py"

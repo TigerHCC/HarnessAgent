@@ -111,6 +111,16 @@ Edit `config.yaml`: set `GOOSE_PROVIDER` to `openai` (vLLM) or `ollama`, and the
 Delete `~/.local/bin/goose` and the goose config dir
 (`%APPDATA%\Block\goose` on Windows, `~/.config/goose` on Linux/macOS). Nothing else is touched.
 
+## Privacy / telemetry
+**Telemetry is OFF by policy.** By default goose POSTs usage metadata (model, your extension
+names, session names, token/session counts, settings) to a hosted PostHog endpoint
+(`us.i.posthog.com`). This repo disables it everywhere: `GOOSE_TELEMETRY_ENABLED: false` in the
+configs + templates + installers, **and** every script that runs goose exports
+`GOOSE_TELEMETRY_ENABLED=false` (env overrides config). Your prompts/responses always stay on
+your configured provider (the **local** vLLM/Ollama). Verified with `strace` that telemetry-off
+makes **zero** external connections. Details + a self-check command in
+[`docs/install_results.md`](docs/install_results.md) ("Telemetry / privacy").
+
 ## Known notes
 - `goose bench` does **not** exist in 1.39.0 (the plan's §7 eval/ratchet idea needs a redesign).
 - The Goose install script is gated by Claude Code's permission classifier when run by the

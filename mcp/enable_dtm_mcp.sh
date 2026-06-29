@@ -20,6 +20,7 @@
 #   DTM_MCP_REPLACE=1 DTM_MCP_STDIO=1 ./enable_dtm_mcp.sh     # http -> stdio
 #   DTM_MCP_REPLACE=1 ./enable_dtm_mcp.sh                     # (back to) http
 set -euo pipefail
+export GOOSE_TELEMETRY_ENABLED=false   # privacy: this script runs `goose info`; never upload telemetry
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CFG="${GOOSE_CONFIG:-$HOME/.config/goose/config.yaml}"

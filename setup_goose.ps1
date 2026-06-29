@@ -141,6 +141,13 @@ $config = @"
 
 $provLines
 
+# Privacy: disable goose's usage telemetry. goose otherwise POSTs usage metadata
+# (model, extensions, session names, token/session counts, settings) to a hosted
+# PostHog endpoint (us.i.posthog.com). Keep this false so no data leaves this
+# machine without approval. Your prompts/responses always stay on your provider
+# (here the local vLLM/Ollama). See docs/install_results.md "Telemetry / privacy".
+GOOSE_TELEMETRY_ENABLED: false
+
 extensions:
   developer:
     type: builtin
@@ -174,6 +181,7 @@ else {
   New-Item -ItemType Directory -Force -Path $work | Out-Null
   Push-Location $work
   $env:GOOSE_MODE = "auto"
+  $env:GOOSE_TELEMETRY_ENABLED = "false"   # privacy: no usage-telemetry upload during the smoke test
   try {
     & $gooseExe run --no-session --max-turns 6 -t "Create ./ok.txt containing the word READY, then stop." 2>&1 | Out-Host
   } catch { Warn "Smoke test run error: $($_.Exception.Message)" }

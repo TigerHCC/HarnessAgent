@@ -305,6 +305,7 @@ class Handler(BaseHTTPRequestHandler):
 
         env = dict(os.environ)
         env["GOOSE_MODE"] = mode
+        env["GOOSE_TELEMETRY_ENABLED"] = "false"  # privacy: never upload usage telemetry (env overrides config)
         env["PATH"] = str(HOME / ".local/bin") + os.pathsep + env.get("PATH", "")
         WORKSPACE.mkdir(parents=True, exist_ok=True)
 

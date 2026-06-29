@@ -100,6 +100,13 @@ cat > "$CFG" <<EOF
 
 ${PROV}
 
+# Privacy: disable goose's usage telemetry. goose otherwise POSTs usage metadata
+# (model, extensions, session names, token/session counts, settings) to a hosted
+# PostHog endpoint (us.i.posthog.com). Keep this false so no data leaves this
+# machine without approval. Your prompts/responses always stay on your provider
+# (here the local vLLM/Ollama). See docs/install_results.md "Telemetry / privacy".
+GOOSE_TELEMETRY_ENABLED: false
+
 extensions:
   developer:
     type: builtin
@@ -129,7 +136,7 @@ elif [ "$backend_up" != "1" ]; then
   c_warn "Backend unreachable; skipping smoke test. Re-run once GB10 is up."
 else
   c_info "Smoke test: headless tool-calling (may take ~10s-2min)..."
-  WORK="$(mktemp -d)"; ( cd "$WORK" && GOOSE_MODE=auto "$GOOSE_BIN" run --no-session --max-turns 6 \
+  WORK="$(mktemp -d)"; ( cd "$WORK" && GOOSE_MODE=auto GOOSE_TELEMETRY_ENABLED=false "$GOOSE_BIN" run --no-session --max-turns 6 \
       -t "Create ./ok.txt containing the word READY, then stop." || true )
   if [ -f "$WORK/ok.txt" ]; then c_ok "Smoke test PASSED -> $(tr -d '\n' < "$WORK/ok.txt")"
   else c_warn "Smoke test did NOT create the file. Check backend/tool-calling."; fi

@@ -18,6 +18,7 @@
 #   PK_MCP_REPLACE=1 PK_MCP_URI=http://127.0.0.1:8766/mcp ./enable_pk_mcp.sh   # stdio -> http
 #   PK_MCP_REPLACE=1 ./enable_pk_mcp.sh                                        # (back to) stdio
 set -euo pipefail
+export GOOSE_TELEMETRY_ENABLED=false   # privacy: this script runs `goose info`; never upload telemetry
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CFG="${GOOSE_CONFIG:-$HOME/.config/goose/config.yaml}"

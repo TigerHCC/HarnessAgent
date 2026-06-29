@@ -16,6 +16,7 @@
 param()
 $ErrorActionPreference = 'Stop'
 $Here = $PSScriptRoot
+$env:GOOSE_TELEMETRY_ENABLED = 'false'   # privacy: no goose usage-telemetry upload (env overrides config)
 
 # sanity: is goose reachable? (config.json / GOOSE_BIN can point elsewhere)
 $goose = $env:GOOSE_BIN

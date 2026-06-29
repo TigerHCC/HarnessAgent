@@ -131,4 +131,5 @@ providers:
     model: qwen-3.6-chat
     configured: true
 active_provider: openai
-GOOSE_TELEMETRY_ENABLED: true
+# Privacy: keep telemetry OFF. true makes goose POST usage metadata to us.i.posthog.com.
+GOOSE_TELEMETRY_ENABLED: false

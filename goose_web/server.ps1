@@ -299,6 +299,7 @@ $worker = {
             $psi.StandardErrorEncoding = $UTF8
             $psi.WorkingDirectory = $S.workspace
             $psi.EnvironmentVariables['GOOSE_MODE'] = $mode   # per-process: no cross-runspace race
+            $psi.EnvironmentVariables['GOOSE_TELEMETRY_ENABLED'] = 'false'   # privacy: never upload usage telemetry
 
             $proc = [System.Diagnostics.Process]::Start($psi)
             $errTask = $proc.StandardError.ReadToEndAsync()   # drain stderr async (avoid deadlock)

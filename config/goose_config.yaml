@@ -37,6 +37,15 @@ OLLAMA_TIMEOUT: 900
 GOOSE_STREAM_TIMEOUT: 900
 OLLAMA_STREAM_TIMEOUT: 900
 
+# --- Privacy: telemetry OFF (do NOT change to true) ---
+# goose otherwise POSTs usage metadata (model, extension names, session names,
+# token/session counts, settings) to a hosted PostHog endpoint (us.i.posthog.com).
+# Keep false so no data leaves this machine without approval. Your prompts/responses
+# only ever go to your configured provider (here the local vLLM/Ollama on GB10).
+# Belt-and-suspenders: HarnessAgent scripts also export GOOSE_TELEMETRY_ENABLED=false
+# (env overrides config) and keep the live config read-only. See docs/install_results.md.
+GOOSE_TELEMETRY_ENABLED: false
+
 # --- Extensions ---
 extensions:
   # Built-in shell + file editing tools (default).

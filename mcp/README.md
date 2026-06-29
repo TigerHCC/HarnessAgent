@@ -9,6 +9,10 @@ or **streamable_http** (Goose connects to an mcp-proxy over HTTP).
 > briefly unlock it, insert the extension, re-lock it, refresh the `.bak`, validate
 > with `goose info -v`, and auto-restore on failure. The versioned template is
 > `../config/goose_config.yaml`.
+>
+> **Privacy:** the `enable_*` scripts export `GOOSE_TELEMETRY_ENABLED=false` before invoking
+> goose, and the configs set it false — goose uploads no usage telemetry. See the repo
+> `README.md` → "Privacy / telemetry".
 
 ## PersonalKnowledge KB — `pk`
 Stateless semantic retrieval over the `pk_*` ChromaDB collections.
