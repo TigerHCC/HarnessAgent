@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.dat
+.cache/
+.pytest_cache/
+tests/fixtures/SRUDB_copy.dat

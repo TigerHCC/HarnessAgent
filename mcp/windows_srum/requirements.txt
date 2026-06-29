@@ -1,0 +1,5 @@
+mcp>=1.2
+psutil>=5.9
+dissect.esedb>=3.0
+wmi>=1.5
+pytest>=8.0

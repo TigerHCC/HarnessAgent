@@ -99,3 +99,18 @@ extensions:
     env_keys: []
     timeout: 600
     description: PersonalKnowledge DTM Knowledge Agent (telemetry/triage/plugin/hw-spec RAG) via streamable_http (mcp-proxy 192.168.86.44:8765)
+
+  # Windows SRUM + live system resource usage (LOCAL elevated server on this box).
+  # Server: HarnessAgent/mcp/windows_srum/ (start_srum_mcp.ps1 as admin, or install_task.ps1).
+  # Tools: live_snapshot, top_processes (real-time) + srum_app_usage, srum_network_usage,
+  #        srum_energy_usage, srum_health (historical per-app, needs the elevated server).
+  srum:
+    type: streamable_http
+    bundled: false
+    name: srum
+    enabled: true
+    uri: http://127.0.0.1:8777/mcp
+    headers: {}
+    env_keys: []
+    timeout: 120
+    description: Windows SRUM + live system resource usage (CPU/mem/net/power) via local elevated MCP server (127.0.0.1:8777)
