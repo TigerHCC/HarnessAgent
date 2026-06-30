@@ -80,6 +80,9 @@ $Port       = [int]$CFG.port
 $Token      = ([string]$CFG.token).Trim()
 $MaxTurns   = [int]$CFG.max_turns
 $TimeoutSec = [int]$CFG.timeout_seconds
+$UploadsSubdir  = if ($CFG.uploads_subdir) { ([string]$CFG.uploads_subdir).Trim('/\') } else { 'uploads' }
+$MaxUploadMb    = if ($env:GOOSE_WEB_MAX_UPLOAD_MB) { [int]$env:GOOSE_WEB_MAX_UPLOAD_MB } elseif ($CFG.max_upload_mb) { [int]$CFG.max_upload_mb } else { 25 }
+$MaxUploadBytes = $MaxUploadMb * 1024 * 1024
 
 # resolve workspace to an absolute path and make sure it exists
 try { $Workspace = [System.IO.Path]::GetFullPath((Join-Path $Here ([string]$CFG.workspace))) }
@@ -391,6 +394,7 @@ $S = @{
     cfg = $CFG; gooseBin = $GooseBin; indexPath = $IndexPath; maxTurns = $MaxTurns
     timeoutSec = $TimeoutSec; token = $Token; workspace = $Workspace; gooseVer = $GooseVersion
     shared = $Shared; reAnsi = $reAnsi; reMascot = $reMascot; reRule = $reRule; reTool = $reTool
+    uploadsSubdir = $UploadsSubdir; maxUploadBytes = $MaxUploadBytes
 }
 
 # ----------------------------------------------------------------------------
@@ -419,6 +423,93 @@ $worker = {
         foreach ($b in $cfg.backends) { if ($b.role -eq 'chat') { return ([string]$b.url).TrimEnd('/') } }
         if ($cfg.backends.Count -gt 0) { return ([string]$cfg.backends[0].url).TrimEnd('/') }
         return ''
+    }
+
+    # ---- uploads: filename safety + attachment message composition (parity with server.py) ----
+    function Safe-Session($s) {
+        $s = ([string]$s).Trim()
+        $s = [regex]::Replace($s, '[^A-Za-z0-9_.-]', '_')
+        if ($s.Length -gt 80) { $s = $s.Substring(0, 80) }
+        $s = $s.Trim('.')
+        if (-not $s) { 'web' } else { $s }
+    }
+    function Safe-Name($name) {
+        $n = ([string]$name) -replace '\\', '/'
+        $n = ($n -split '/')[-1]
+        $n = ($n.Trim() -replace '[^A-Za-z0-9._ ()-]', '_').TrimStart('.').Trim()
+        if ($n.Length -gt 150) { $n = $n.Substring(0, 150) }
+        $n = $n.Trim()
+        if (-not $n) { 'file' } else { $n }
+    }
+    function Human-Size($n) {
+        $f = [double]$n
+        foreach ($u in 'B', 'KB', 'MB', 'GB') {
+            if ($f -lt 1024 -or $u -eq 'GB') {
+                if ($u -eq 'B') { return ("{0} B" -f [int]$f) } else { return ("{0:0.0} {1}" -f $f, $u) }
+            }
+            $f = $f / 1024
+        }
+    }
+    function Session-UploadDir($S, $session) {
+        $root = [System.IO.Path]::GetFullPath((Join-Path $S.workspace $S.uploadsSubdir))
+        $d = [System.IO.Path]::GetFullPath((Join-Path $root (Safe-Session $session)))
+        $sep = [System.IO.Path]::DirectorySeparatorChar
+        if ($d -ne $root -and -not $d.StartsWith($root + $sep)) { throw 'escapes workspace' }
+        return $d
+    }
+    function Unique-Path($dir, $name) {
+        $p = Join-Path $dir $name
+        if (-not (Test-Path -LiteralPath $p)) { return $p }
+        $base = [System.IO.Path]::GetFileNameWithoutExtension($name)
+        $ext = [System.IO.Path]::GetExtension($name)
+        $i = 1
+        while (Test-Path -LiteralPath (Join-Path $dir ("$base ($i)$ext"))) { $i++ }
+        return (Join-Path $dir ("$base ($i)$ext"))
+    }
+    function Compose-Message($S, $message, $session, $attachments) {
+        if (-not $attachments) { return $message }
+        $dir = Session-UploadDir $S $session
+        $sub = "$($S.uploadsSubdir)/$(Safe-Session $session)"
+        $lines = @()
+        foreach ($a in $attachments) {
+            if ($a -isnot [string]) { continue }
+            $sn = Safe-Name $a
+            $p = Join-Path $dir $sn
+            if (Test-Path -LiteralPath $p -PathType Leaf) {
+                $lines += "- $sub/$sn ($(Human-Size (Get-Item -LiteralPath $p).Length))"
+            }
+        }
+        if ($lines.Count -eq 0) { return $message }
+        # Chinese built from code points (file has no BOM; keep it ASCII-on-disk like the regex markers)
+        $label = -join (@(0x5B,0x9644,0x52A0,0x6A94,0x6848,0x20,0x28,0x76F8,0x5C0D,0x65BC,0x5DE5,0x4F5C,0x76EE,0x9304,0x29,0x3A,0x5D) | ForEach-Object { [char]$_ })
+        $deflt = -join (@(0x8ACB,0x67E5,0x770B,0x6211,0x9644,0x52A0,0x7684,0x6A94,0x6848,0x3002) | ForEach-Object { [char]$_ })
+        $body = if ($message) { $message } else { $deflt }
+        return ($body + "`n`n" + $label + "`n" + ($lines -join "`n"))
+    }
+    function Handle-Upload($ctx, $S) {
+        if ($S.token) {
+            $sup = $ctx.Request.Headers['X-Goose-Token']
+            if (-not $sup) { $sup = $ctx.Request.QueryString['token'] }
+            if ($sup -ne $S.token) { Send-Json $ctx @{ error = 'unauthorized' } 401; return }
+        }
+        $session = $ctx.Request.QueryString['session']; if (-not $session) { $session = 'web' }
+        $name = Safe-Name $ctx.Request.QueryString['name']
+        $len = [int64]$ctx.Request.ContentLength64
+        if ($len -le 0) { Send-Json $ctx @{ error = 'empty body' } 400; return }
+        if ($len -gt $S.maxUploadBytes) { Send-Json $ctx @{ error = 'file too large' } 413; return }
+        $dest = $null
+        try {
+            $dir = Session-UploadDir $S $session
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            $dest = Unique-Path $dir $name
+            $fs = [System.IO.File]::Create($dest)
+            try { $ctx.Request.InputStream.CopyTo($fs) } finally { $fs.Close() }
+            $size = (Get-Item -LiteralPath $dest).Length
+            Send-Json $ctx @{ ok = $true; name = [System.IO.Path]::GetFileName($dest); size = $size }
+        } catch {
+            if ($dest -and (Test-Path -LiteralPath $dest)) { try { Remove-Item -LiteralPath $dest -Force } catch {} }
+            Send-Json $ctx @{ error = ([string]$_) } 400
+        }
     }
 
     function Build-Health($S) {
@@ -597,11 +688,10 @@ $worker = {
         try { if ($bodyText.Trim()) { $req = $bodyText | ConvertFrom-Json } } catch { Send-Json $ctx @{ error = 'bad json' } 400; return }
         if ($null -eq $req) { Send-Json $ctx @{ error = 'bad json' } 400; return }
 
-        $session = if ($req.session) { [string]$req.session } else { 'web' }
-        $session = $session.Trim(); if ($session.Length -gt 80) { $session = $session.Substring(0, 80) }
-        $session = [regex]::Replace($session, '[^A-Za-z0-9_.-]', '_'); if (-not $session) { $session = 'web' }
+        $session = Safe-Session $req.session
         $message = if ($req.message) { ([string]$req.message).Trim() } else { '' }
         $mode = if ($req.mode -eq 'chat') { 'chat' } else { 'auto' }
+        $message = Compose-Message $S $message $session $req.attachments
         if (-not $message) { Send-Json $ctx @{ error = 'empty message' } 400; return }
 
         Invoke-Chat $ctx $S $session $message $mode
@@ -618,6 +708,8 @@ $worker = {
                 else { Send-Json $ctx @{ error = 'not found' } 404 }
             } elseif ($req.HttpMethod -eq 'POST' -and $path -eq '/api/chat') {
                 $streamed = $true; Handle-Chat $ctx $S
+            } elseif ($req.HttpMethod -eq 'POST' -and $path -eq '/api/upload') {
+                Handle-Upload $ctx $S
             } else {
                 Send-Json $ctx @{ error = 'not found' } 404
             }
