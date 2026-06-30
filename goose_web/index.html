@@ -206,6 +206,19 @@
   .cbox textarea{flex:1;background:none;border:0;outline:0;color:var(--txt);font:inherit;font-size:16px;
     resize:none;max-height:200px;line-height:1.55;padding:9px 0}
   .cbox textarea::placeholder{color:var(--faint)}
+  .cbox .attachbtn{background:none;border:0;color:var(--faint);cursor:pointer;font-size:18px;padding:0 2px 9px;align-self:flex-end;line-height:1}
+  .cbox .attachbtn:hover{color:var(--accent)}
+  .chips{max-width:860px;margin:0 auto 8px;display:flex;flex-wrap:wrap;gap:7px}
+  .chips:empty{display:none}
+  .chip{display:flex;align-items:center;gap:7px;background:var(--panel2);border:1px solid var(--line2);
+    border-radius:9px;padding:4px 9px;font-size:12.5px;color:var(--txt);max-width:240px}
+  .chip .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chip .sz{color:var(--faint);font-size:11px;flex:0 0 auto}
+  .chip .x{cursor:pointer;color:var(--faint);flex:0 0 auto;font-size:13px}
+  .chip .x:hover{color:var(--down)}
+  .composer.drag .cbox{border-color:var(--accent);box-shadow:0 0 0 4px #d8b67730}
+  .ufiles{margin-top:6px;display:flex;flex-wrap:wrap;gap:6px}
+  .ufile{font-size:12px;color:var(--muted);background:var(--tool);border:1px solid var(--line);border-radius:7px;padding:2px 8px}
   .send{width:40px;height:40px;border-radius:11px;border:0;background:var(--accent);color:#231c0c;
     font-size:18px;cursor:pointer;flex:0 0 auto;transition:.15s;display:grid;place-items:center}
   .send:hover{background:#e6c585}
@@ -268,12 +281,15 @@
       <span class="pill" id="pillModel">—</span>
     </div>
     <div class="transcript" id="transcript"><div class="wrap" id="wrap"></div></div>
-    <div class="composer">
+    <div class="composer" id="composer">
+      <div class="chips" id="chips"></div>
       <div class="cbox">
+        <button class="attachbtn" id="btnAttach" title="Attach files">📎</button>
         <textarea id="input" rows="1" placeholder="Send a message…  (Enter to send, Shift+Enter for newline)"></textarea>
         <button class="send" id="btnSend" title="Send">↑</button>
       </div>
-      <div class="chint" id="hint">Agent mode runs tools (shell, files, knowledge) · Chat mode is model-only</div>
+      <input type="file" id="fileInput" multiple style="display:none">
+      <div class="chint" id="hint">Agent mode runs tools (shell, files, knowledge) · Chat mode is model-only · 📎 attach files for the agent to read</div>
     </div>
   </main>
 
@@ -391,11 +407,13 @@ function switchTo(id){
 }
 
 /* ---------------- message rendering ---------------- */
-function addUser(text){
+function addUser(text,files){
   if(wrap.querySelector(".hero"))wrap.innerHTML="";
   const m=el("div","msg user");
   m.innerHTML='<div class="av">YOU</div><div class="body"><div class="utext"></div></div>';
-  m.querySelector(".utext").textContent=text;wrap.appendChild(m);scrollDown();
+  m.querySelector(".utext").textContent=text;
+  if(files&&files.length){const fl=el("div","ufiles");fl.innerHTML=files.map(n=>'<span class="ufile">📎 '+esc(n)+'</span>').join("");m.querySelector(".body").appendChild(fl);}
+  wrap.appendChild(m);scrollDown();
 }
 let A=null;
 function startAssistant(){
@@ -432,15 +450,25 @@ function scrollDown(){transcript.scrollTop=transcript.scrollHeight;}
 
 /* ---------------- send / stream ---------------- */
 async function send(){
-  const text=input.value.trim();if(!text||streaming)return;
+  const text=input.value.trim();
+  const files=pending.slice();
+  if((!text&&files.length===0)||streaming)return;
   if(!active)newChat();
   const s=curSession();
-  if(!s.title){s.title=text.slice(0,46);$("#topTitle").textContent=s.title;renderSessions();}
-  addUser(text);input.value="";autoGrow();
+  if(!s.title){s.title=(text||files.map(f=>f.name).join(", ")).slice(0,46);$("#topTitle").textContent=s.title;renderSessions();}
+  addUser(text,files.map(f=>f.name));input.value="";pending=[];renderChips();autoGrow();
   streaming=true;setWorking(true);startAssistant();
   try{
+    const attachments=[];
+    for(const f of files){
+      const uh={};if(TOKEN)uh["X-Goose-Token"]=TOKEN;
+      const ur=await fetch("/api/upload?session="+encodeURIComponent(active)+"&name="+encodeURIComponent(f.name),{method:"POST",headers:uh,body:f});
+      if(ur.status===401){TOKEN="";localStorage.removeItem("haToken");promptToken();throw new Error("unauthorized — token required");}
+      if(!ur.ok)throw new Error("upload failed: "+f.name+" ("+ur.status+")");
+      attachments.push((await ur.json()).name);
+    }
     const headers={"Content-Type":"application/json"};if(TOKEN)headers["X-Goose-Token"]=TOKEN;
-    const res=await fetch("/api/chat",{method:"POST",headers,body:JSON.stringify({session:active,message:text,mode:MODE})});
+    const res=await fetch("/api/chat",{method:"POST",headers,body:JSON.stringify({session:active,message:text,mode:MODE,attachments})});
     if(res.status===401){TOKEN="";localStorage.removeItem("haToken");promptToken();throw new Error("unauthorized — token required");}
     if(!res.ok)throw new Error("server error "+res.status);
     const reader=res.body.getReader(),dec=new TextDecoder();let buf="";
@@ -543,6 +571,28 @@ function openNav(){document.body.classList.add("navopen");}
 function closeNav(){document.body.classList.remove("navopen");}
 input.addEventListener("input",autoGrow);
 input.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}});
+
+/* ---------------- file attach ---------------- */
+let pending=[];
+function fmtSize(n){const u=["B","KB","MB","GB"];let f=n,i=0;while(f>=1024&&i<3){f/=1024;i++;}return (i?f.toFixed(1):f)+" "+u[i];}
+function renderChips(){
+  const box=$("#chips");box.innerHTML="";
+  pending.forEach((f,idx)=>{
+    const c=el("div","chip");
+    c.innerHTML='<span class="nm">'+esc(f.name)+'</span><span class="sz">'+fmtSize(f.size)+'</span><span class="x" title="remove">✕</span>';
+    c.querySelector(".x").onclick=()=>{pending.splice(idx,1);renderChips();};
+    box.appendChild(c);
+  });
+}
+function addFiles(list){for(const f of list){if(f)pending.push(f);}renderChips();}
+$("#btnAttach").onclick=()=>$("#fileInput").click();
+$("#fileInput").addEventListener("change",e=>{addFiles(e.target.files);e.target.value="";});
+const composerEl=$("#composer");
+["dragenter","dragover"].forEach(ev=>composerEl.addEventListener(ev,e=>{e.preventDefault();composerEl.classList.add("drag");}));
+["dragleave","drop"].forEach(ev=>composerEl.addEventListener(ev,e=>{e.preventDefault();if(ev==="drop"||!composerEl.contains(e.relatedTarget))composerEl.classList.remove("drag");}));
+composerEl.addEventListener("drop",e=>{if(e.dataTransfer&&e.dataTransfer.files)addFiles(e.dataTransfer.files);});
+input.addEventListener("paste",e=>{const fs=[...((e.clipboardData&&e.clipboardData.files)?e.clipboardData.files:[])];if(fs.length){e.preventDefault();addFiles(fs);}});
+
 $("#btnSend").onclick=send;
 $("#btnNew").onclick=newChat;
 $("#btnMenu").onclick=openNav;$("#scrim").onclick=closeNav;
