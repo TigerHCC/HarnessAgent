@@ -86,6 +86,7 @@ Then open `http://<gb10-ip>:8799` (this box is `192.168.86.44`).
 | `GOOSE_WEB_WORKSPACE` | `../workspace` | agent working dir (where `developer` writes files) |
 | `GOOSE_WEB_MAXTURNS` | `50` | `--max-turns` per turn |
 | `GOOSE_WEB_TIMEOUT` | `1800` | hard wall-clock kill (seconds) per turn |
+| `GOOSE_WEB_MAX_UPLOAD_MB` | `25` | max size per attached file (`POST /api/upload`) |
 | `GOOSE_WEB_MODEL` | from config | model name shown in the UI |
 | `GOOSE_WEB_CONFIG` | `./config.json` | path to the web config file |
 | `GOOSE_CONFIG` | OS default | goose's `config.yaml` used for live MCP tool discovery |
@@ -98,10 +99,12 @@ The sidebar **Tools** list is discovered **live** from goose's own
 tool set and caches the result (refreshed every ~90s; `/api/health` only ever
 reads the cache, so a slow/offline server never blocks it):
 
-- **builtin** (`developer`) — in-process, not handshakeable, so a curated static
-  entry (`shell`, `text_editor`) is shown.
-- **stdio** (e.g. `memory` = `goose mcp memory`) — spawned, newline-delimited
-  JSON-RPC `initialize`→`tools/list`.
+- **builtin** — `developer` is in-process and not handshakeable (`goose mcp developer`
+  is invalid), so a curated static entry (`shell`, `text_editor`) is shown; other
+  bundled builtins (e.g. `memory`, `computercontroller`) are introspected via
+  `goose mcp <id>`.
+- **stdio** — spawned `cmd` + `args`, newline-delimited JSON-RPC
+  `initialize`→`tools/list`.
 - **streamable_http** (e.g. `dtm`, `srum`, `eventlog`) — POST `initialize`
   (echoing the `Mcp-Session-Id`) → `tools/list`; both `application/json` and SSE
   `text/event-stream` replies are handled.
@@ -114,7 +117,18 @@ servers `offline`. Point discovery at a non-default config with `GOOSE_CONFIG`.
 ## Endpoints
 - `GET /` — the chat page
 - `GET /api/health` — model + backend status + **live-discovered MCP extensions + tool list** (snapshot cache, version cached at startup)
-- `POST /api/chat` — `{session, message, mode}` → streamed NDJSON events
+- `POST /api/chat` — `{session, message, mode, attachments?}` → streamed NDJSON events
+- `POST /api/upload?session=&name=` — raw file bytes in the body → saved to `workspace/uploads/<session>/`; returns `{ok, name, size}`
+
+## Attaching files
+The composer has a 📎 button (plus drag-drop and paste). On send, each staged file is
+uploaded via `POST /api/upload` into `workspace/uploads/<session>/`, then `/api/chat` is
+called with `attachments: ["<name>", …]`. The server appends the files' workspace-relative
+paths to the message, so the agent reads them with its own tools (`developer`
+`text_editor`/`shell`; `computercontroller` `pdf_tool`/`docx_tool`/`xlsx_tool`).
+Filenames are sanitized and confined to `workspace/uploads/`; each file is capped at
+`max_upload_mb` (default 25, env `GOOSE_WEB_MAX_UPLOAD_MB`). Uploads inherit the same
+token gate as `/api/chat`.
 
 ## ⚠ Security
 With `GOOSE_MODE=auto`, the agent auto-runs shell/file tools on this box. Bound to
