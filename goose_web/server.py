@@ -816,10 +816,11 @@ class Handler(BaseHTTPRequestHandler):
                     time.sleep(1.0)
             threading.Thread(target=_watchdog, args=(proc,), daemon=True).start()
 
-            # keepalive: goose can stay silent 100s+ during tool runs; ping the client
-            # every 12s so a mobile NAT/WiFi/browser never drops the idle stream.
+            # keepalive: goose can stay silent 100s+ during tool runs; ping every ~5s so bytes
+            # keep flowing under even aggressive mobile/cellular/VPN (Tailscale) NAT idle
+            # timeouts (~10-15s) that a slower ping would miss.
             def _pinger():
-                while not ping_stop.wait(12):
+                while not ping_stop.wait(5):
                     if not self._emit({"type": "ping"}):
                         return
             threading.Thread(target=_pinger, daemon=True).start()

@@ -625,10 +625,11 @@ $worker = {
                 $idle = 0
                 while (-not $task.Wait(1000)) {
                     if ((Get-Date) -gt $deadline) { try { if (-not $proc.HasExited) { $proc.Kill() } } catch {}; $killed = $true; break }
-                    # keepalive: goose can stay silent for 100s+ during tool runs; a periodic ping
-                    # keeps bytes flowing so mobile NAT/WiFi/browser won't drop the idle stream.
+                    # keepalive: goose can stay silent 100s+ during tool runs; ping every ~5s so
+                    # bytes keep flowing under even aggressive mobile/cellular/VPN (Tailscale) NAT
+                    # idle timeouts (~10-15s) that a slower ping would miss.
                     $idle++
-                    if ($idle % 12 -eq 0) { $alive = Emit $out @{ type = 'ping' }; if (-not $alive) { break } }
+                    if ($idle % 5 -eq 0) { $alive = Emit $out @{ type = 'ping' }; if (-not $alive) { break } }
                 }
                 if ($killed -or -not $alive) { break }
                 $raw = $task.Result
