@@ -622,10 +622,15 @@ $worker = {
 
             while ($true) {
                 $task = $so.ReadLineAsync()
+                $idle = 0
                 while (-not $task.Wait(1000)) {
                     if ((Get-Date) -gt $deadline) { try { if (-not $proc.HasExited) { $proc.Kill() } } catch {}; $killed = $true; break }
+                    # keepalive: goose can stay silent for 100s+ during tool runs; a periodic ping
+                    # keeps bytes flowing so mobile NAT/WiFi/browser won't drop the idle stream.
+                    $idle++
+                    if ($idle % 12 -eq 0) { $alive = Emit $out @{ type = 'ping' }; if (-not $alive) { break } }
                 }
-                if ($killed) { break }
+                if ($killed -or -not $alive) { break }
                 $raw = $task.Result
                 if ($null -eq $raw) { break }                 # EOF
 

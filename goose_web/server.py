@@ -664,13 +664,23 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _emit(self, obj) -> bool:
-        """Write one NDJSON event; return False if the client has gone away."""
+        """Write one NDJSON event; return False if the client has gone away.
+
+        Thread-safe when self._wlock is set: the keepalive pinger and the main
+        stream loop both call this concurrently.
+        """
+        lock = getattr(self, "_wlock", None)
+        if lock is not None:
+            lock.acquire()
         try:
             self.wfile.write((json.dumps(obj) + "\n").encode("utf-8"))
             self.wfile.flush()
             return True
         except (BrokenPipeError, ConnectionResetError, OSError):
             return False
+        finally:
+            if lock is not None:
+                lock.release()
 
     # -- routes --
     def do_GET(self):
@@ -785,6 +795,8 @@ class Handler(BaseHTTPRequestHandler):
             self._emit({"type": "done", "code": -1})
             return
 
+        self._wlock = threading.Lock()
+        ping_stop = threading.Event()
         proc = None
         try:
             self._emit({"type": "meta", "session": session, "resume": resume, "mode": mode})
@@ -803,6 +815,14 @@ class Handler(BaseHTTPRequestHandler):
                         return
                     time.sleep(1.0)
             threading.Thread(target=_watchdog, args=(proc,), daemon=True).start()
+
+            # keepalive: goose can stay silent 100s+ during tool runs; ping the client
+            # every 12s so a mobile NAT/WiFi/browser never drops the idle stream.
+            def _pinger():
+                while not ping_stop.wait(12):
+                    if not self._emit({"type": "ping"}):
+                        return
+            threading.Thread(target=_pinger, daemon=True).start()
 
             in_tool = False
             tool_buf: list[str] = []
@@ -855,6 +875,7 @@ class Handler(BaseHTTPRequestHandler):
             self._emit({"type": "error", "text": str(e)})
             self._emit({"type": "done", "code": -1})
         finally:
+            ping_stop.set()
             if proc and proc.poll() is None:
                 proc.kill()
             lock.release()
