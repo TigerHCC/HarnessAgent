@@ -276,10 +276,14 @@ function Get-McpStdioTools($exe, $argList) {
 }
 
 # Discover one extension -> @{ ext = <health entry>; tools = <flat rows> }.
-function Discover-Extension($e) {
+function Discover-Extension($e, $gooseBin) {
     $detail = ''; $status = 'offline'; $etools = @()
     if ($e.type -eq 'builtin') {
-        $status = 'builtin'; $etools = @(Get-DeveloperTools)
+        if ($e.id -eq 'developer') {            # not handshakeable -> static
+            $status = 'builtin'; $etools = @(Get-DeveloperTools)
+        } else {                                 # introspect via `goose mcp <id>`
+            try { $etools = @(Get-McpStdioTools $gooseBin @('mcp', $e.id)); $status = 'builtin' } catch { $status = 'offline'; $etools = @() }
+        }
     } elseif ($e.type -eq 'stdio') {
         try { $etools = @(Get-McpStdioTools $e.cmd $e.args); $status = 'ok' } catch { $status = 'offline'; $etools = @() }
     } elseif ($e.type -eq 'streamable_http' -or $e.type -eq 'sse') {
@@ -303,7 +307,7 @@ try {
         if (-not $e.enabled) { continue }
         $detail = ''
         if ($e.uri) { try { $u = [System.Uri]$e.uri; $detail = "$($u.Host):$($u.Port)" } catch {} }
-        $status = if ($e.type -eq 'builtin') { 'builtin' } else { 'checking' }
+        $status = if ($e.type -eq 'builtin' -and $e.id -eq 'developer') { 'builtin' } else { 'checking' }
         $seedExts += @{ id = $e.id; name = $e.name; transport = $e.type; status = $status; count = 0; detail = $detail }
     }
 } catch {}
@@ -313,14 +317,14 @@ try { $Shared.exts = $seedExts; $Shared.tools = @() } finally { [System.Threadin
 # The discoverer runspace: handshake every enabled extension, publish the snapshot
 # under the shared lock, then refresh on an interval. Never touched by /api/health.
 $discoverer = {
-    param($configPath, $refreshSec, $shared, $fnsText)
+    param($configPath, $refreshSec, $shared, $fnsText, $gooseBin)
     Invoke-Expression $fnsText
     while ($true) {
         $exts = @(); $tools = @()
         try {
             foreach ($e in (Parse-GooseExtensions $configPath)) {
                 if (-not $e.enabled) { continue }
-                $d = Discover-Extension $e
+                $d = Discover-Extension $e $gooseBin
                 $exts += $d.ext
                 foreach ($r in $d.tools) { $tools += $r }
             }
@@ -649,7 +653,7 @@ for ($i = 0; $i -lt $N; $i++) {
 # background MCP discovery -- its own runspace (the worker pool is saturated by the
 # blocking accept loops). Does the real handshakes now, then refreshes every 90s.
 $discoPs = [powershell]::Create()
-[void]$discoPs.AddScript($discoverer.ToString()).AddArgument($GooseConfigPath).AddArgument($DISCOVERY_REFRESH_SEC).AddArgument($Shared).AddArgument($DiscoveryFns)
+[void]$discoPs.AddScript($discoverer.ToString()).AddArgument($GooseConfigPath).AddArgument($DISCOVERY_REFRESH_SEC).AddArgument($Shared).AddArgument($DiscoveryFns).AddArgument($GooseBin)
 $discoHandle = $discoPs.BeginInvoke()
 
 try {

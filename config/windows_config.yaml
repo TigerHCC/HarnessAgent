@@ -67,20 +67,29 @@ extensions:
     enabled: true
     timeout: 300
 
-  # Bundled 'memory' MCP server, run as a stdio subprocess by goose itself.
-  # cmd MUST be the Windows goose.exe path on THIS machine.
+  # Bundled 'memory' MCP server, loaded in-process as a builtin -- lower overhead
+  # than spawning a separate `goose mcp memory` stdio subprocess on every run
+  # (and no goose.exe path to keep correct). Same tools + same stored memories.
   memory:
-    type: stdio
-    bundled: false
+    type: builtin
+    bundled: true
     name: memory
     enabled: true
-    cmd: C:\Users\a9027\.local\bin\goose.exe
-    args:
-      - mcp
-      - memory
-    env_keys: []
     timeout: 300
-    description: Bundled 'memory' MCP server (stdio)
+    description: Bundled 'memory' MCP server (builtin, in-process)
+
+  # Computer Controller: system automation, loaded in-process as a builtin.
+  # Tools: web_scrape (fetch/cache pages), automation_script (run Shell/PowerShell/
+  #        Ruby/Batch), computer_control, cache, pdf_tool, docx_tool, xlsx_tool.
+  # NOTE: with GOOSE_MODE=auto this lets the agent run scripts + read/write Office
+  #       files on this box -- keep the web UI behind a token / 127.0.0.1.
+  computercontroller:
+    type: builtin
+    bundled: true
+    name: computercontroller
+    enabled: true
+    timeout: 300
+    description: Computer Controller (web scrape / scripts / PDF-DOCX-XLSX) builtin
 
   # PersonalKnowledge DTM Knowledge Agent over MCP (mcp-proxy on GB10 :8765).
   # REMOTE client -> use the GB10 LAN IP (NOT 127.0.0.1).

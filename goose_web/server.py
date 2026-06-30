@@ -424,7 +424,13 @@ def _discover_extension(e: dict) -> tuple[str, str, list[dict]]:
     typ = e.get("type", "")
     ext_id = e.get("id", "")
     if typ == "builtin":
-        return "builtin", "", (_BUILTIN_DEVELOPER_TOOLS if ext_id == "developer" else [])
+        # developer is NOT handshakeable (`goose mcp developer` is invalid) -> static.
+        if ext_id == "developer":
+            return "builtin", "", _BUILTIN_DEVELOPER_TOOLS
+        # other bundled servers (memory, computercontroller, ...) run in-process at
+        # chat time but are still introspectable via `goose mcp <id>` over stdio.
+        res = _discover_stdio(GOOSE_BIN, ["mcp", ext_id])
+        return ("builtin", "", res) if res is not None else ("offline", "", [])
     if typ == "streamable_http":
         detail = _host_port(e.get("uri", ""))
         try:
@@ -459,9 +465,9 @@ def _build_snapshot(handshake: bool) -> tuple[list[dict], list[dict]]:
         typ = e.get("type", "")
         ext_id = e.get("id", "")
         name = e.get("name") or ext_id
-        if typ == "builtin" or handshake:
+        if (typ == "builtin" and ext_id == "developer") or handshake:
             status, detail, discovered = _discover_extension(e)
-        else:  # seed pass: don't block startup on stdio/http handshakes
+        else:  # seed pass: don't block startup on stdio/http/builtin handshakes
             status = "checking"
             detail = _host_port(e.get("uri", "")) if typ == "streamable_http" else ""
             discovered = []
