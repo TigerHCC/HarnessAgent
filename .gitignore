@@ -1,0 +1,4 @@
+
+# goose_web runtime logs
+goose_web/server_run.out
+goose_web/server_run.err
