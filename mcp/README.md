@@ -26,6 +26,7 @@ Tools: `search_kb`, `get_document`, `list_sources` (serverInfo `personal-kb`).
 ```bash
 ./enable_pk_mcp.sh                                  # enable pk over stdio (default)
 PK_MCP_URI=http://127.0.0.1:8766/mcp ./enable_pk_mcp.sh   # use streamable_http instead
+PK_MCP_REPLACE=1 PK_MCP_URI=http://127.0.0.1:8766/mcp ./enable_pk_mcp.sh   # re-point an already-enabled pk (stdio<->http)
 ```
 PK is fast (first call = one embedding on vLLM `:8001`), so **stdio** needs no warm
 proxy. For `streamable_http`, run PersonalKnowledge's `scripts/run_pk_mcp_proxy.sh`
@@ -43,6 +44,7 @@ warm HTTP proxy beats per-call stdio (~110s vs ~167s cold) — hence the default
 
 ```bash
 ./enable_dtm_mcp.sh                                    # streamable_http -> :8765/mcp (default)
+DTM_MCP_URI=http://127.0.0.1:8765/mcp ./enable_dtm_mcp.sh  # override the streamable_http URI
 DTM_MCP_STDIO=1 ./enable_dtm_mcp.sh                    # self-contained stdio instead
 DTM_MCP_REPLACE=1 DTM_MCP_STDIO=1 ./enable_dtm_mcp.sh  # switch an already-enabled dtm's transport
 ```

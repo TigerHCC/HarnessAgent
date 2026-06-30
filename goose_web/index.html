@@ -208,14 +208,16 @@
   .cbox textarea::placeholder{color:var(--faint)}
   .cbox .attachbtn{background:none;border:0;color:var(--faint);cursor:pointer;font-size:18px;padding:0 2px 9px;align-self:flex-end;line-height:1}
   .cbox .attachbtn:hover{color:var(--accent)}
-  .chips{max-width:860px;margin:0 auto 8px;display:flex;flex-wrap:wrap;gap:7px}
-  .chips:empty{display:none}
-  .chip{display:flex;align-items:center;gap:7px;background:var(--panel2);border:1px solid var(--line2);
-    border-radius:9px;padding:4px 9px;font-size:12.5px;color:var(--txt);max-width:240px}
-  .chip .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .chip .sz{color:var(--faint);font-size:11px;flex:0 0 auto}
-  .chip .x{cursor:pointer;color:var(--faint);flex:0 0 auto;font-size:13px}
-  .chip .x:hover{color:var(--down)}
+  /* composer file-attach chips (scoped to #chips so they don't clobber the hero .chip cards) */
+  #chips{max-width:860px;margin:0 auto 8px;display:flex;flex-wrap:wrap;gap:7px}
+  #chips:empty{display:none}
+  #chips .chip{display:flex;align-items:center;gap:7px;background:var(--panel2);border:1px solid var(--line2);
+    border-radius:9px;padding:4px 9px;font-size:12.5px;color:var(--txt);max-width:240px;cursor:default;transform:none;box-shadow:none}
+  #chips .chip:hover{transform:none;box-shadow:none;border-color:var(--line2)}
+  #chips .chip .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #chips .chip .sz{color:var(--faint);font-size:11px;flex:0 0 auto}
+  #chips .chip .x{cursor:pointer;color:var(--faint);flex:0 0 auto;font-size:13px}
+  #chips .chip .x:hover{color:var(--down)}
   .composer.drag .cbox{border-color:var(--accent);box-shadow:0 0 0 4px #d8b67730}
   .ufiles{margin-top:6px;display:flex;flex-wrap:wrap;gap:6px}
   .ufile{font-size:12px;color:var(--muted);background:var(--tool);border:1px solid var(--line);border-radius:7px;padding:2px 8px}

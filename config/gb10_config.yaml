@@ -1,3 +1,6 @@
+# NOTE: point-in-time snapshot. This file has the 'dtm' extension only.
+# The live config (~/.config/goose/config.yaml) also has a 'pk' extension
+# (type: streamable_http, uri: http://127.0.0.1:8766/mcp).
 OPENAI_HOST: http://192.168.86.44:8000
 OPENAI_BASE_PATH: v1/chat/completions
 OPENAI_API_KEY: sk-local

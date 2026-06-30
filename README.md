@@ -1,4 +1,4 @@
-# HarnessAgent — Goose on Windows/▪ → GB10 models
+# HarnessAgent — Goose on Windows/Linux → GB10 models
 
 A self-contained setup for the [Goose](https://github.com/aaif-goose/goose) agent harness
 that runs on a client machine and uses the **GB10 model server** (`192.168.86.44`) as its
@@ -20,20 +20,23 @@ Validated on the Windows 11 dev box on 2026-06-28, and re-validated the same day
   and `dtm` (PersonalKnowledge DTM Knowledge Agent — telemetry/triage/plugin/hw-spec
   RAG over ChromaDB). `dtm` connects over **streamable HTTP** (`http://127.0.0.1:8765/mcp`)
   to the mcp-proxy, kept alive by the enabled `dtm-mcp-proxy` **system service** (survives
-  reboot); stdio `dtm_mcp.sh` is the no-dependency fallback. The DTM agent is also reachable
-  **remotely** over the same proxy (streamable HTTP / SSE) — see [`RUN.md`](RUN.md) §5
+  reboot); stdio `mcp/qb10_dtm_mcp.sh` is the no-dependency fallback. The DTM agent is also reachable
+  **remotely** over the same proxy (streamable HTTP / SSE) — see [`RUN.md`](RUN.md) §5, and
+  `pk` (PersonalKnowledge KB MCP — `search_kb` / `get_document` / `list_sources`) over
+  **streamable HTTP** via the `pk-mcp-proxy` on `:8766`
 - A tool-calling smoke test that proves it end-to-end
-- A **remote web UI** ([`goose_web/`](goose_web/)) — chat with the harness + DTM tools
-  from any browser on the LAN, with streaming and rendered tool-call cards
+- A **remote web UI** ([`goose_web/`](goose_web/), served on `:8799`) — chat with the harness
+  + DTM tools from any browser on the LAN, with streaming and rendered tool-call cards
 - See [`RUN.md`](RUN.md) for how to launch the harness with DTM support
 
 ## Backends (on GB10)
 | Backend | Endpoint | Model | Notes |
 |---|---|---|---|
 | **vLLM** (default) | `:8000` (OpenAI-compat) | `qwen-3.6-chat` | Fast (tool task ~8s); needs tool-parser flag (below) |
+| vLLM embed | `:8001` (OpenAI-compat) | (embeddings) | Used by the `dtm`/`pk` RAG for embeddings |
 | Ollama (fallback) | `:11434` | `qwen3.5:9b` | No GB10 flags; only 9b is fast enough for tools |
 
-GB10 vLLM is deployed via [`docker-compose.yaml`](docker-compose.yaml). **Critical flag** for
+GB10 vLLM is deployed via [`config/docker-compose.yaml`](config/docker-compose.yaml). **Critical flag** for
 Goose tool-calling (the `qwen-3.6-chat` model emits Qwen XML `<function=...>` format):
 
 ```
@@ -98,12 +101,12 @@ Edit `config.yaml`: set `GOOSE_PROVIDER` to `openai` (vLLM) or `ollama`, and the
 | Path | Purpose |
 |---|---|
 | `setup_goose.ps1` / `setup_goose.sh` | one-click installers for a new machine |
-| `dtm_mcp.sh` | launcher that exposes the PersonalKnowledge DTM agent as an MCP stdio server (venv + cwd handling) |
-| `goose_web/` | remote web UI — `server.py` (stdlib HTTP→`goose run` bridge), `index.html` (chat page), `serve_web.sh` (launcher) |
+| `mcp/` | MCP launchers + enable scripts: `qb10_dtm_mcp.sh`/`qb10_pk_mcp.sh` (stdio launchers → GB10-workspace), `enable_dtm_mcp.sh`/`enable_pk_mcp.sh`, `windows_srum/`, `windows_eventlog/` (see `mcp/README.md`) |
+| `goose_web/` | remote web UI — `server.py` / `server.ps1` (stdlib HTTP→`goose run` bridge), `index.html` (chat page), `serve_web.sh`/`.ps1` (launchers) |
 | `workspace/` | working dir for files the agent creates when driven from the web UI |
 | `RUN.md` | how to launch the harness and use the DTM tools |
 | `config/goose_config.yaml` | reference copy of the working config (incl. `dtm` extension) |
-| `docker-compose.yaml` | GB10 vLLM deployment (chat + embed) |
+| `config/docker-compose.yaml` | GB10 vLLM deployment (chat + embed) |
 | `docs/install_goose_harness_plan.md` | original plan |
 | `docs/install_results.md` | install + smoke-test results, findings, rollback |
 

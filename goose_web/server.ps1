@@ -42,6 +42,8 @@ function Load-WebConfig {
         workspace       = (Join-Path $Here '..\workspace')
         max_turns       = 50
         timeout_seconds = 1800
+        max_upload_mb   = 25
+        uploads_subdir  = 'uploads'
         goose_bin       = ''
         model           = 'qwen-3.6-chat'
         provider_label  = 'vLLM (OpenAI-compat)'
@@ -394,7 +396,7 @@ $S = @{
     cfg = $CFG; gooseBin = $GooseBin; indexPath = $IndexPath; maxTurns = $MaxTurns
     timeoutSec = $TimeoutSec; token = $Token; workspace = $Workspace; gooseVer = $GooseVersion
     shared = $Shared; reAnsi = $reAnsi; reMascot = $reMascot; reRule = $reRule; reTool = $reTool
-    uploadsSubdir = $UploadsSubdir; maxUploadBytes = $MaxUploadBytes
+    uploadsSubdir = $UploadsSubdir; maxUploadBytes = $MaxUploadBytes; maxUploadMb = $MaxUploadMb
 }
 
 # ----------------------------------------------------------------------------
@@ -496,7 +498,7 @@ $worker = {
         $name = Safe-Name $ctx.Request.QueryString['name']
         $len = [int64]$ctx.Request.ContentLength64
         if ($len -le 0) { Send-Json $ctx @{ error = 'empty body' } 400; return }
-        if ($len -gt $S.maxUploadBytes) { Send-Json $ctx @{ error = 'file too large' } 413; return }
+        if ($len -gt $S.maxUploadBytes) { Send-Json $ctx @{ error = "file too large (> $($S.maxUploadMb) MB)" } 413; return }
         $dest = $null
         try {
             $dir = Session-UploadDir $S $session

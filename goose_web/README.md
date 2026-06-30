@@ -39,6 +39,7 @@ the rest of the knobs:
 {
   "host": "0.0.0.0", "port": 8799, "token": "", "workspace": "../workspace",
   "max_turns": 50, "timeout_seconds": 1800, "goose_bin": "",
+  "max_upload_mb": 25, "uploads_subdir": "uploads",
   "model": "qwen-3.6-chat", "provider_label": "vLLM (OpenAI-compat)",
   "backends": [
     { "name": "vLLM chat",  "url": "http://192.168.86.44:8000",  "health_path": "/v1/models", "role": "chat"  },

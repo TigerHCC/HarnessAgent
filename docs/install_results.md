@@ -141,7 +141,8 @@ Notes / deviations:
 The DTM agent already ships its own MCP server (`python -m dtm_agent mcp`, 6 tools:
 `dtm_query`, `dtm_telemetry_lookup`, `dtm_triage`, `dtm_data_feature`, `dtm_hw_spec`,
 `dtm_health`). Wiring, **without modifying PersonalKnowledge**:
-- Launcher `HarnessAgent/dtm_mcp.sh` runs the server with the project **venv**
+- Launcher `mcp/qb10_dtm_mcp.sh` runs the server with the project **venv**
+  (the root `dtm_mcp.sh` is a retained duplicate)
   (`PersonalKnowledge/venv`, has `chromadb`) and **cwd = PersonalKnowledge** — both
   required by `dtm_agent/SETUP.md` (a bare `python`/wrong cwd lets the repo's `chromadb/`
   data dir shadow the package).
@@ -194,7 +195,7 @@ Persistence is already handled by an **enabled system service** `dtm-mcp-proxy.s
 **Trade-off vs stdio:** streamable_http adds a runtime dependency on that proxy — if the
 service is down, `dtm` is unavailable (Goose itself keeps working). To revert to the
 self-contained, no-dependency setup, set the `dtm` extension back to `type: stdio`,
-`cmd: HarnessAgent/dtm_mcp.sh` (Goose then spawns the agent on demand). The `/sse` endpoint
+`cmd: mcp/qb10_dtm_mcp.sh` (Goose then spawns the agent on demand). The `/sse` endpoint
 still exists on the proxy for non-Goose MCP clients; Goose must use `/mcp` (SSE was dropped in 1.39).
 
 ## Re-verification 2026-06-28 — config self-strip risk + read-only hardening
@@ -235,7 +236,7 @@ Re-verification results (all green, post-restore, with config read-only):
 
 ## Rollback (Linux / GB10-native)
 `rm ~/.local/bin/goose` and `rm -rf ~/.config/goose`; remove the `dtm` extension or just
-`rm HarnessAgent/dtm_mcp.sh`. PersonalKnowledge (venv, dtm_agent, chromadb, DTMKnowledge)
+`rm mcp/qb10_dtm_mcp.sh`. PersonalKnowledge (venv, dtm_agent, chromadb, DTMKnowledge)
 is untouched throughout.
 
 ## Telemetry / privacy — telemetry is OFF by policy (verified)

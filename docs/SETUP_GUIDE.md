@@ -59,7 +59,7 @@ HarnessAgent wires the [Goose](https://github.com/aaif-goose/goose) CLI/agent to
 - `secrets.yaml` in `/home/nvidia/Downloads/PersonalKnowledge` containing `hf_token: "hf_..."`; Hugging Face licenses accepted for `Qwen/Qwen3.6-35B-A3B-FP8` and `Qwen/Qwen3-Embedding-4B`.
 - HF cache at `/home/nvidia/.cache/huggingface`. Single-GPU budget: chat 0.65 + embed 0.20.
 - Ollama binary at `/usr/local/bin/ollama` running as a systemd service on `:11434`.
-- PersonalKnowledge checkout at `/home/nvidia/Downloads/PersonalKnowledge` with a project venv at `venv/` (chromadb, requests, pyyaml installed), Python 3.10+, and the `DTMKnowledge/` + `kb/` data dirs and `config.yaml`/`config` sections (see `SETUP.md`).
+- DTM/PK MCP trees on this GB10 box (the live `dtm-mcp-proxy`/`pk-mcp-proxy` systemd units and the `qb10_*_mcp.sh` stdio launchers point here): DTM agent at `/home/nvidia/Downloads/GB10-workspace/dtm-agent` (project `venv/`, `DTMKnowledge/` data dir, `config.yaml`) and PK at `/home/nvidia/Downloads/GB10-workspace/pk-mcp` (project `venv/`, `kb/` data dir, `kb_query.py`, `config.yaml`). Each `venv/` has chromadb, requests, pyyaml; Python 3.10+ (see each tree's `README.md`/`SETUP.md`). (`/home/nvidia/Downloads/PersonalKnowledge` is the older/divergent checkout — prefer the GB10-workspace trees for dtm/pk on this box.)
 
 **On Windows (for SRUM + Event Log only)**
 - Windows machine, Python 3.13 in PATH as `python`, Administrator privileges available.
@@ -121,7 +121,7 @@ The DTM Knowledge Agent is a RAG service on the GB10. The **server/proxy infrast
 **On GB10 (Linux) — one-time DTM setup + server (can run before Step 4):**
 ```bash
 ollama pull qwen3.5:9b && ollama pull qwen3-embedding:4b
-cd /home/nvidia/Downloads/PersonalKnowledge
+cd /home/nvidia/Downloads/GB10-workspace/dtm-agent
 # ensure venv deps: venv/bin/pip install chromadb requests pyyaml
 venv/bin/python -m dtm_agent health           # Ollama OK + DTMKnowledge files
 venv/bin/python -m dtm_agent index --dry-run  # verify parsing
@@ -133,15 +133,15 @@ Preferred transport is a warm always-on HTTP proxy on `:8765` (avoids per-call c
 ```bash
 venv/bin/pip install mcp-proxy
 # B) ad-hoc proxy:
-/home/nvidia/Downloads/PersonalKnowledge/dtm_agent/run_mcp_proxy.sh   # binds 0.0.0.0:8765 -> /mcp (streamable), /sse
+/home/nvidia/Downloads/GB10-workspace/dtm-agent/dtm_agent/run_mcp_proxy.sh   # binds 0.0.0.0:8765 -> /mcp (streamable), /sse
 sudo ufw allow 8765/tcp                                                # only if remote LAN clients need it
 # B2) always-on systemd service (needs sudo):
-sudo cp /home/nvidia/Downloads/PersonalKnowledge/dtm_agent/dtm-mcp-proxy.service /etc/systemd/system/
+sudo cp /home/nvidia/Downloads/GB10-workspace/dtm-agent/dtm_agent/dtm-mcp-proxy.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now dtm-mcp-proxy
 systemctl status dtm-mcp-proxy
 ```
-(Self-contained stdio alternative — no proxy/port/sudo: `/home/nvidia/Downloads/PersonalKnowledge/dtm_agent/run_mcp.sh`.)
+(Self-contained stdio alternative — no proxy/port/sudo: `/home/nvidia/Downloads/GB10-workspace/dtm-agent/dtm_agent/run_mcp.sh`, or the Goose `dtm` stdio launcher `mcp/qb10_dtm_mcp.sh`.)
 
 **On GB10 (Linux) — (C) wire into Goose — REQUIRES STEP 4 DONE FIRST:**
 ```bash
@@ -161,7 +161,7 @@ The script unlocks the read-only `~/.config/goose/config.yaml`, inserts the `dtm
 **Verify:**
 ```bash
 curl http://localhost:11434/api/tags
-cd /home/nvidia/Downloads/PersonalKnowledge && venv/bin/python -m dtm_agent health
+cd /home/nvidia/Downloads/GB10-workspace/dtm-agent && venv/bin/python -m dtm_agent health
 curl http://127.0.0.1:8765/mcp                # proxy reachable (streamable_http path)
 systemctl status dtm-mcp-proxy
 grep -cE '^[[:space:]]{2}dtm:[[:space:]]*$' ~/.config/goose/config.yaml   # expect 1 after enable
@@ -177,7 +177,7 @@ PK is a stateless retrieval MCP server (`search_kb` / `get_document` / `list_sou
 **On GB10 (Linux) — stdio path (DEFAULT, recommended):**
 ```bash
 # Prereqs: PK venv has chromadb, pk_* ChromaDB collections built, vLLM :8001 embedding endpoint up.
-cd /home/nvidia/Downloads/PersonalKnowledge && venv/bin/python kb_query.py --mcp-mode   # optional manual check; Ctrl-C to exit
+cd /home/nvidia/Downloads/GB10-workspace/pk-mcp && venv/bin/python kb_query.py --mcp-mode   # optional manual check; Ctrl-C to exit
 # (or the wrapper, which sets cwd + venv for you:)
 /home/nvidia/Downloads/HarnessAgent/mcp/qb10_pk_mcp.sh
 
@@ -188,17 +188,17 @@ cd /home/nvidia/Downloads/HarnessAgent/mcp && ./enable_pk_mcp.sh
 
 **On GB10 (Linux) — streamable_http path (alternative, via pk-mcp-proxy on :8766):**
 ```bash
-cd /home/nvidia/Downloads/PersonalKnowledge && venv/bin/pip install mcp-proxy
-/home/nvidia/Downloads/PersonalKnowledge/scripts/run_pk_mcp_proxy.sh    # serves /mcp + /sse on 0.0.0.0:8766
+cd /home/nvidia/Downloads/GB10-workspace/pk-mcp && venv/bin/pip install mcp-proxy
+/home/nvidia/Downloads/GB10-workspace/pk-mcp/scripts/run_pk_mcp_proxy.sh    # serves /mcp + /sse on 0.0.0.0:8766
 sudo ufw allow 8766/tcp                                                 # only if LAN access needed
 # always-on systemd:
-sudo cp /home/nvidia/Downloads/PersonalKnowledge/scripts/pk-mcp-proxy.service /etc/systemd/system/
+sudo cp /home/nvidia/Downloads/GB10-workspace/pk-mcp/scripts/pk-mcp-proxy.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now pk-mcp-proxy
 # wire into Goose over HTTP (REQUIRES STEP 4):
 cd /home/nvidia/Downloads/HarnessAgent/mcp && PK_MCP_URI=http://127.0.0.1:8766/mcp ./enable_pk_mcp.sh
 # switch transports: PK_MCP_REPLACE=1 [PK_MCP_URI=...] ./enable_pk_mcp.sh
 ```
-(On GB10 the dev box IS the model server, so `127.0.0.1` is correct for `PK_MCP_URI`. A combined PK+DTM single-proxy on `:8765` also exists via `/home/nvidia/Downloads/PersonalKnowledge/HarnessAgent/mcp/start_mcp_servers.sh`, PK at `/servers/pk/mcp` — see that script.)
+(On GB10 the dev box IS the model server, so `127.0.0.1` is correct for `PK_MCP_URI`. A combined PK+DTM single-proxy on `:8765` also exists via `/home/nvidia/Downloads/PersonalKnowledge/HarnessAgent/mcp/start_mcp_servers.sh` (this combined script lives only in the older PersonalKnowledge checkout — it has no GB10-workspace equivalent), PK at `/servers/pk/mcp` — see that script.)
 
 **Ports exposed:** stdio path uses **no** network port. HTTP path uses `8766/tcp` (`/mcp` + `/sse`). `search_kb` requires vLLM `:8001`.
 
@@ -360,6 +360,22 @@ GOOSE_WEB_TOKEN=secret ./serve_web.sh        # /api/chat then needs ?token= or X
 # change port: GOOSE_WEB_PORT=9000 ./serve_web.sh
 ```
 
+**Environment knobs** (read by both `server.py` and `server.ps1`; each overrides the matching `config.json` value):
+
+| Env var | config.json | Default | Purpose |
+|---|---|---|---|
+| `GOOSE_WEB_HOST` | `host` | `0.0.0.0` | bind address |
+| `GOOSE_WEB_PORT` | `port` | `8799` | listen port |
+| `GOOSE_WEB_TOKEN` | `token` | _(empty)_ | shared secret; if set, `/api/chat` **and** `/api/upload` require `?token=` or `X-Goose-Token` |
+| `GOOSE_WEB_WORKSPACE` | `workspace` | `../workspace` | agent working directory (cwd of each `goose run`) |
+| `GOOSE_WEB_MAXTURNS` | `max_turns` | `50` | `--max-turns` per message |
+| `GOOSE_WEB_TIMEOUT` | `timeout_seconds` | `1800` | hard wall-clock kill (seconds) |
+| `GOOSE_WEB_MODEL` | `model` | `qwen-3.6-chat` | model name shown in the UI/health panel |
+| `GOOSE_WEB_CONFIG` | _(n/a)_ | `./config.json` | path to the `config.json` itself |
+| `GOOSE_WEB_MAX_UPLOAD_MB` | `max_upload_mb` | `25` | per-file upload cap (MB) |
+
+**File attachments:** files attached in the chat UI are uploaded via `POST /api/upload` (raw request body; `?session=&name=` query params) into `workspace/<uploads_subdir>/<session>/` (default `workspace/uploads/<session>/`; `uploads_subdir` in `config.json`). Each file is capped at `GOOSE_WEB_MAX_UPLOAD_MB` (`config.json` `max_upload_mb`, default 25 MB); the save path is sandboxed to the workspace (filename sanitized, collisions auto-suffixed). The agent then reads the saved files with its own tools (developer `text_editor`/`shell`, computercontroller `pdf`/`docx`/`xlsx`) — the uploaded paths are appended to the chat message relative to the workspace.
+
 **On Windows:**
 ```powershell
 cd <repo>\goose_web
@@ -411,7 +427,7 @@ With telemetry on, Goose would POST usage metadata (model, extension/session nam
 - **Embed port mapping:** host `8001` → container `8000` (both vLLM containers listen on 8000 internally); don't expect the embed container to expose 8001 internally.
 - **`start_vllm.sh` requires `secrets.yaml`:** must run from the PersonalKnowledge dir; hard-exits if `secrets.yaml` is missing. An empty `hf_token` only warns (rate-limited downloads), not fatal.
 - **Ollama 30B+ models stall on tools:** `qwen3.6:35b` (and other ≥30B) exceed 120s prompt-eval (`Ollama stream stalled`) on tool payloads — the Ollama fallback uses `qwen3.5:9b`. Config raises timeouts to ~900s.
-- **DTM/PK `chromadb` shadowing:** both servers MUST run with `venv/bin/python` AND cwd = PersonalKnowledge root, else the repo's local `./chromadb/` data dir shadows the installed `chromadb` package → `module 'chromadb' has no attribute 'PersistentClient'`. The `run_mcp.sh` / `qb10_*_mcp.sh` wrappers handle this.
+- **DTM/PK `chromadb` shadowing:** both servers MUST run with `venv/bin/python` AND cwd = the tree's project root (GB10-workspace `dtm-agent` / `pk-mcp`), else the repo's local `./chromadb/` data dir shadows the installed `chromadb` package → `module 'chromadb' has no attribute 'PersistentClient'`. The `run_mcp.sh` / `qb10_*_mcp.sh` wrappers handle this.
 - **`streamable_http` requires the proxy up:** the `dtm` (`:8765`) / `pk` (`:8766`) HTTP extensions exist after enabling but calls fail if the proxy isn't running. The enable scripts warn but do not start the proxy. (PK stdio path needs no proxy.)
 - **SSE dropped in Goose 1.39+:** use `type: streamable_http` with the `/mcp` endpoint, NOT `type: sse` / `/sse`. (`/sse` remains only for legacy non-Goose clients like Claude Desktop.)
 - **DTM cold start:** first query after a cold start takes 30–60s+ (per-call stdio ~167s vs warm proxy ~110s) — keep client `timeout: 600`; prefer the warm `:8765` proxy. The proxy holds one backend process, so concurrent requests serialize, and it adds no auth/TLS — only expose on a trusted LAN/VPN.

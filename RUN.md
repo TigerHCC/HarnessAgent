@@ -1,9 +1,11 @@
 # Running the Goose Harness Agent (with DTM Knowledge Agent MCP)
 
-The DTM MCP server is wired into Goose as the `dtm` extension and **starts
-automatically** when Goose launches — there is no separate server to start.
-Goose spawns `HarnessAgent/dtm_mcp.sh` as a subprocess on startup, which runs
-`python -m dtm_agent mcp` from the PersonalKnowledge venv.
+The DTM agent is wired into Goose as the `dtm` extension. By default it is
+`type: streamable_http` pointing at `http://127.0.0.1:8765/mcp`, so it needs the
+**`dtm-mcp-proxy` systemd unit** (binds `:8765`) to be up — it is *not* a Goose
+subprocess. The canonical stdio launcher is `mcp/qb10_dtm_mcp.sh` (runs
+`python -m dtm_agent mcp` from the GB10-workspace/dtm-agent venv); use it as a
+self-contained, proxy-free alternative via `DTM_MCP_STDIO=1 mcp/enable_dtm_mcp.sh`.
 
 ## 1. Preflight (optional) — confirm the backends are up
 ```bash
@@ -53,7 +55,10 @@ GOOSE_WEB_TOKEN=pick-a-secret ./serve_web.sh
 ```
 Then browse to **`http://192.168.86.44:8799`** (this box's LAN IP). The page streams
 responses and renders tool-call cards; the same `developer` / `memory` / `dtm` tools are
-available, and files the agent creates land in `HarnessAgent/workspace/`.
+available, and files the agent creates land in `HarnessAgent/workspace/`. The UI also
+supports **attaching files** (`POST /api/upload`), saved under
+`workspace/uploads/<session>/` and capped at `GOOSE_WEB_MAX_UPLOAD_MB` (default 25)
+per file; the agent then reads them with its own tools.
 
 > ⚠ With `GOOSE_MODE=auto` the agent runs shell/file commands on this box. Bound to
 > `0.0.0.0`, anyone who can reach the port can do so — set `GOOSE_WEB_TOKEN` or bind
@@ -93,11 +98,25 @@ extensions:
 ```
 > Verified 2026-06-28: a remote-style `streamable_http` connection drives the real DTM
 > tools (`▸ dtm_telemetry_lookup dtm`, KB-grounded). The `/sse` endpoint also works for
-> non-Goose MCP clients (Claude Desktop, custom). The local harness on this box keeps
-> using **stdio** (no proxy needed) — the proxy is only for *other* machines.
+> non-Goose MCP clients (Claude Desktop, custom). The local harness on this box now
+> **defaults to `streamable_http` against the local `:8765` proxy** (a warm proxy beats
+> per-call stdio) — so keep `dtm-mcp-proxy` up. Stdio remains available via
+> `DTM_MCP_STDIO=1 mcp/enable_dtm_mcp.sh` (no proxy/port/sudo).
 
 > ⚠ The proxy binds `0.0.0.0` with **no authentication** (same as the web UI on :8799).
 > Only expose it on a trusted LAN/VPN, or front it with a reverse proxy that adds auth/TLS.
+
+## 6. PersonalKnowledge (PK) KB MCP
+A second knowledge extension, `pk`, exposes the PersonalKnowledge KB (semantic search
+over the indexed Outlook/Jira/Confluence/OneNote/markdown sources). Tools:
+`search_kb` · `get_document` · `list_sources`. Enable it with:
+```bash
+cd ~/Downloads/HarnessAgent/mcp
+./enable_pk_mcp.sh                                   # stdio default (mcp/qb10_pk_mcp.sh; no proxy)
+PK_MCP_URI=http://127.0.0.1:8766/mcp ./enable_pk_mcp.sh   # streamable_http (needs pk-mcp-proxy :8766)
+```
+PK is stateless retrieval (one embedding call, no rerank/LLM), so stdio is a good fit;
+the `pk-mcp-proxy` systemd unit serves the streamable_http transport on `:8766`.
 
 ## Notes
 - A successful DTM call shows a `▸ dtm_telemetry_lookup dtm` block in the output —
@@ -111,7 +130,9 @@ extensions:
 
 ## What this depends on (see README "Files needed")
 - Goose binary `~/.local/bin/goose` + config `~/.config/goose/config.yaml`
-- `HarnessAgent/dtm_mcp.sh` (the DTM launcher)
-- PersonalKnowledge: `venv/`, `dtm_agent/`, `config.yaml` (dtm_agent section),
+- `mcp/qb10_dtm_mcp.sh` (canonical DTM stdio launcher) + `mcp/enable_dtm_mcp.sh`;
+  for streamable_http, the `dtm-mcp-proxy` systemd unit on `:8765`
+- `mcp/qb10_pk_mcp.sh` + `mcp/enable_pk_mcp.sh` (PK KB); `pk-mcp-proxy` unit on `:8766`
+- GB10-workspace/dtm-agent: `venv/`, `dtm_agent/`, `config.yaml` (dtm_agent section),
   `chromadb/` (built index), `DTMKnowledge/` (source KB)
 - Model services: vLLM `:8000` + `:8001` (Ollama `:11434` fallback)
