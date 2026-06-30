@@ -65,6 +65,8 @@ _DEFAULTS = {
     "max_turns": 50,
     "timeout_seconds": 1800,
     "goose_bin": "",
+    "max_upload_mb": 25,
+    "uploads_subdir": "uploads",
     "model": "qwen-3.6-chat",
     "provider_label": "vLLM (OpenAI-compat)",
     "backends": [
@@ -108,6 +110,9 @@ TOKEN = str(WEBCFG["token"]).strip()
 WORKSPACE = Path(WEBCFG["workspace"]).resolve()
 MAX_TURNS = str(WEBCFG["max_turns"])
 MAX_WALL_SECONDS = int(WEBCFG["timeout_seconds"])
+UPLOADS_SUBDIR = str(WEBCFG.get("uploads_subdir", "uploads")).strip("/\\") or "uploads"
+MAX_UPLOAD_MB = int(os.environ.get("GOOSE_WEB_MAX_UPLOAD_MB", WEBCFG.get("max_upload_mb", 25)))
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
 
 def _find_goose() -> str:
@@ -560,6 +565,71 @@ def _health() -> dict:
         "extensions": extensions,
         "tools": tools,
     }
+
+
+# ---- uploads: filename safety + attachment message composition ----
+_SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._ ()-]")
+
+
+def _safe_session(s: str) -> str:
+    s = re.sub(r"[^A-Za-z0-9_.-]", "_", str(s or "").strip())[:80]
+    return s or "web"
+
+
+def _safe_name(name: str) -> str:
+    name = str(name or "").replace("\\", "/").split("/")[-1].strip()
+    name = _SAFE_NAME_RE.sub("_", name).lstrip(".").strip()
+    return name[:150].strip() or "file"
+
+
+def _human_size(n: int) -> str:
+    f = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if f < 1024 or unit == "GB":
+            return f"{int(f)} {unit}" if unit == "B" else f"{f:.1f} {unit}"
+        f /= 1024
+
+
+def _uploads_root() -> Path:
+    return (WORKSPACE / UPLOADS_SUBDIR).resolve()
+
+
+def _session_upload_dir(session: str) -> Path:
+    root = _uploads_root()
+    d = (root / _safe_session(session)).resolve()
+    if d != root and root not in d.parents:
+        raise ValueError("upload path escapes workspace")
+    return d
+
+
+def _unique_path(d: Path, name: str) -> Path:
+    p = d / name
+    if not p.exists():
+        return p
+    stem, dot, ext = name.rpartition(".")
+    base, suffix = (stem, "." + ext) if dot else (name, "")
+    i = 1
+    while (d / f"{base} ({i}){suffix}").exists():
+        i += 1
+    return d / f"{base} ({i}){suffix}"
+
+
+def _compose_message(message: str, session: str, attachments) -> str:
+    names = [a for a in (attachments or []) if isinstance(a, str)]
+    if not names:
+        return message
+    d = _session_upload_dir(session)
+    sub = f"{UPLOADS_SUBDIR}/{_safe_session(session)}"
+    lines = []
+    for n in names:
+        sn = _safe_name(n)
+        p = d / sn
+        if p.is_file():
+            lines.append(f"- {sub}/{sn} ({_human_size(p.stat().st_size)})")
+    if not lines:
+        return message
+    body = message or "請查看我附加的檔案。"
+    return body + "\n\n[附加檔案 (相對於工作目錄):]\n" + "\n".join(lines)
 
 
 class Handler(BaseHTTPRequestHandler):
