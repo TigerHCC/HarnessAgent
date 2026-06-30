@@ -573,6 +573,7 @@ _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._ ()-]")
 
 def _safe_session(s: str) -> str:
     s = re.sub(r"[^A-Za-z0-9_.-]", "_", str(s or "").strip())[:80]
+    s = s.strip(".")  # no leading/trailing dots -> kills "." / ".." traversal
     return s or "web"
 
 
@@ -681,11 +682,26 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send_json({"error": "not found"}, 404)
 
+    def _auth_ok(self) -> bool:
+        if not TOKEN:
+            return True
+        from urllib.parse import urlparse, parse_qs
+        supplied = self.headers.get("X-Goose-Token", "") or \
+            parse_qs(urlparse(self.path).query).get("token", [""])[0]
+        return supplied == TOKEN
+
     def do_POST(self):
         path = self.path.split("?", 1)[0]
-        if path != "/api/chat":
+        if path not in ("/api/chat", "/api/upload"):
             self._send_json({"error": "not found"}, 404)
             return
+        if not self._auth_ok():
+            self._send_json({"error": "unauthorized"}, 401)
+            return
+        if path == "/api/upload":
+            self._handle_upload()
+            return
+        # ---- /api/chat ----
         length = int(self.headers.get("Content-Length", "0") or "0")
         raw = self.rfile.read(length) if length else b"{}"
         try:
@@ -693,26 +709,50 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             self._send_json({"error": "bad json"}, 400)
             return
-
-        # token gate
-        if TOKEN:
-            supplied = self.headers.get("X-Goose-Token", "")
-            if not supplied:
-                from urllib.parse import urlparse, parse_qs
-                supplied = parse_qs(urlparse(self.path).query).get("token", [""])[0]
-            if supplied != TOKEN:
-                self._send_json({"error": "unauthorized"}, 401)
-                return
-
-        session = str(req.get("session") or "web").strip()[:80] or "web"
-        session = re.sub(r"[^A-Za-z0-9_.-]", "_", session)
+        session = _safe_session(req.get("session") or "web")
         message = str(req.get("message") or "").strip()
         mode = "chat" if req.get("mode") == "chat" else "auto"
+        message = _compose_message(message, session, req.get("attachments") or [])
         if not message:
             self._send_json({"error": "empty message"}, 400)
             return
-
         self._stream_chat(session, message, mode)
+
+    def _handle_upload(self):
+        from urllib.parse import urlparse, parse_qs
+        qs = parse_qs(urlparse(self.path).query)
+        session = qs.get("session", ["web"])[0]
+        name = _safe_name(qs.get("name", [""])[0])
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        if length <= 0:
+            self._send_json({"error": "empty body"}, 400)
+            return
+        if length > MAX_UPLOAD_BYTES:
+            self._send_json({"error": f"file too large (> {MAX_UPLOAD_MB} MB)"}, 413)
+            return
+        dest = None
+        try:
+            d = _session_upload_dir(session)
+            d.mkdir(parents=True, exist_ok=True)
+            dest = _unique_path(d, name)
+            remaining, written = length, 0
+            with open(dest, "wb") as f:
+                while remaining > 0:
+                    chunk = self.rfile.read(min(65536, remaining))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    written += len(chunk)
+                    remaining -= len(chunk)
+        except Exception as e:  # noqa: BLE001
+            if dest is not None:
+                try:
+                    dest.unlink()
+                except Exception:
+                    pass
+            self._send_json({"error": str(e)}, 400)
+            return
+        self._send_json({"ok": True, "name": dest.name, "size": written})
 
     # -- the streaming chat run --
     def _stream_chat(self, session: str, message: str, mode: str):

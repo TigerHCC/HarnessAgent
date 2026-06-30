@@ -36,6 +36,14 @@ class UploadDir(unittest.TestCase):
         root = (server.WORKSPACE / server.UPLOADS_SUBDIR).resolve()
         self.assertTrue(str(d).startswith(str(root)))
 
+    def test_dot_only_session_collapses_to_web(self):
+        self.assertEqual(server._safe_session(".."), "web")
+        self.assertEqual(server._safe_session("."), "web")
+        # dot-only session must not escape the uploads root
+        d = server._session_upload_dir("..")
+        root = (server.WORKSPACE / server.UPLOADS_SUBDIR).resolve()
+        self.assertTrue(str(d).startswith(str(root)))
+
 
 class Compose(unittest.TestCase):
     def _mk(self, session, name, content=b"hi"):
