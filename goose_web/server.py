@@ -791,7 +791,7 @@ class Handler(BaseHTTPRequestHandler):
             proc = subprocess.Popen(
                 cmd, cwd=str(WORKSPACE), env=env,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1,
+                text=True, encoding="utf-8", errors="replace", bufsize=1,
             )
 
             # watchdog: hard wall-clock kill
