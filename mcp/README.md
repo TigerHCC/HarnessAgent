@@ -84,5 +84,9 @@ Each server can also be started standalone (`windows_<name>\start_<name>_mcp.ps1
 via its `install_task.ps1`. The full extension block set is in [`../config/windows_config.yaml`](../config/windows_config.yaml);
 the candidate roadmap + build status is in [`../docs/windows-diagnostic-mcp-candidates.md`](../docs/windows-diagnostic-mcp-candidates.md).
 
+**How to actually use them** — [`../docs/DIAGNOSTIC_PLAYBOOK.md`](../docs/DIAGNOSTIC_PLAYBOOK.md) maps common
+symptoms → which tool → the exact call → a ready-to-paste Goose prompt, plus the baseline/trend method
+(現象 vs 故障) and cross-tool correlation workflows for root-causing.
+
 **Sysmon** (separate, in [`../tools/sysmon/`](../tools/sysmon/)) enriches the `eventlog` MCP with process/
 network/driver telemetry — install it manually (kernel driver + EULA); see its README.
