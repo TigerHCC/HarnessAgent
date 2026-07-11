@@ -25,7 +25,8 @@ Python 依賴、註冊+啟動 7 個 MCP 排程、把 extension 註冊進 goose c
 - ✅ **`procinspect`**(8785)— 誰鎖檔(Restart Manager)+ 掛死/deadlock(Wait Chain Traversal)+ 載入模組/簽章 + handle 洩漏視圖
 - ✅ **`memstate`**(8786)— pool tag 記憶體歸因(poolmon)+ tag→driver + physical 組成(RamMap)+ 洩漏趨勢基線
 - ✅ **`filterstack`**(8787)— filesystem minifilters(AV/VPN 在每次檔案操作)+ altitude 分類 + NDIS/Winsock 網路過濾器 + 基線
-- 未建:etwtrace、wheadecode、powerdiag、winupdate-history。
+- ✅ **`winupdate`**(8788)— WU 更新歷史 + 失敗 HRESULT 解碼 + pending 狀態(問題常在 Windows Update 後發生)
+- 未建(價值/工程量考量,暫緩):`etwtrace`(ETW 抓取,高工程量)、`wheadecode`(WHEA 硬體錯誤,需真有事件)、`powerdiag`(睡眠/電池,桌機無電池則價值減)。
 每個新 MCP 都經 4 維度對抗式 review + verify(crash 修 18、exec+drift 修 9、netconn 修 7、perfmon 修 7 個確認問題)。
 
 ## 篩選準則

@@ -271,3 +271,17 @@ extensions:
     env_keys: []
     timeout: 120
     description: Windows filter-stack map (filesystem minifilters + NDIS/Winsock network filters + altitude classification) via local elevated MCP server (127.0.0.1:8787)
+
+  # Windows Update history + failure decode (LOCAL server on this box).
+  # Server: HarnessAgent/mcp/windows_winupdate/ (start_winupdate_mcp.ps1, or install_task.ps1).
+  # Tools: update_history, installed_updates, pending_state, hresult_decode, winupdate_health.
+  winupdate:
+    type: streamable_http
+    bundled: false
+    name: winupdate
+    enabled: true
+    uri: http://127.0.0.1:8788/mcp
+    headers: {}
+    env_keys: []
+    timeout: 120
+    description: Windows Update history + failure HRESULTs + pending-reboot state via local MCP server (127.0.0.1:8788)
