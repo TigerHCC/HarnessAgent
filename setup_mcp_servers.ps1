@@ -10,9 +10,9 @@
   fresh machine, then this. Requires: an elevated PowerShell (Scheduled Tasks + the servers read
   SYSTEM-hive / kernel data), Python 3 on PATH with pip.
 
-  The 10 servers (all loopback, read-only, streamable HTTP):
+  The 11 servers (all loopback, read-only, streamable HTTP):
     srum 8777, eventlog 8778, crash 8779, exec 8780, drift 8781, netconn 8782,
-    perfmon 8783, disk 8784, procinspect 8785, memstate 8786
+    perfmon 8783, disk 8784, procinspect 8785, memstate 8786, filterstack 8787
 
 .PARAMETER SkipDeps      Skip `pip install` of Python dependencies.
 .PARAMETER SkipTasks     Don't register Scheduled Tasks (just start the servers once, this session).
@@ -65,9 +65,11 @@ $MCPS = @(
      desc="Windows process inspection (who-locks-a-file, hang/deadlock wait chains, loaded modules, handle-leak view) via local MCP server (127.0.0.1:8785)" }
   @{ name="memstate";  dir="windows_memstate";  port=8786; task="Memstate-MCP";
      desc="Windows memory attribution (pool tags / physical-memory composition / kernel-pool leak hunt) via local elevated MCP server (127.0.0.1:8786)" }
+  @{ name="filterstack"; dir="windows_filterstack"; port=8787; task="Filterstack-MCP";
+     desc="Windows filter-stack map (filesystem minifilters + NDIS/Winsock network filters + altitude classification) via local elevated MCP server (127.0.0.1:8787)" }
 )
 
-Write-Host "=== HarnessAgent MCP servers setup (10 diagnostic MCPs) ===" -ForegroundColor Magenta
+Write-Host "=== HarnessAgent MCP servers setup (11 diagnostic MCPs) ===" -ForegroundColor Magenta
 
 # --- 0. Prereqs ---
 $id = [Security.Principal.WindowsIdentity]::GetCurrent()
