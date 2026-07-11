@@ -1,0 +1,41 @@
+<Sysmon schemaversion="4.90">
+  <!--
+    Starter Sysmon config for system-problem diagnosis on this box.
+    Goal: high-value, LOW-NOISE events that feed the existing eventlog MCP via the
+          Microsoft-Windows-Sysmon/Operational channel — WITHOUT firehosing the log.
+
+    Design: the six diagnostic-valuable event types are logged in full (onmatch="exclude"
+            with no rule = log everything). The noisy types are explicitly turned OFF
+            (onmatch="include" with no rule = log nothing) so you can enable them selectively
+            later instead of being flooded from day one.
+
+    Tune later: to start capturing e.g. unsigned ImageLoads or specific DnsQuery, add
+                <Rule>...</Rule> children under the relevant element (change to include-with-rules).
+    Reload after edits:  Sysmon64.exe -c sysmon-config.xml
+  -->
+  <HashAlgorithms>SHA256</HashAlgorithms>
+  <CheckRevocation>False</CheckRevocation>
+
+  <EventFiltering>
+    <!-- === HIGH-VALUE, LOW-NOISE: log everything of these types === -->
+    <ProcessCreate onmatch="exclude"/>        <!-- 1: what launched (hashes, cmdline, parent) -->
+    <ProcessTerminate onmatch="exclude"/>     <!-- 5: process exits -->
+    <DriverLoad onmatch="exclude"/>           <!-- 6: driver loads — BSOD / instability hunting -->
+    <NetworkConnect onmatch="exclude"/>       <!-- 3: per-process TCP/UDP connections -->
+    <CreateRemoteThread onmatch="exclude"/>   <!-- 8: cross-process injection -->
+    <WmiEvent onmatch="exclude"/>             <!-- 19/20/21: WMI persistence -->
+
+    <!-- === NOISY: OFF by default (include + no rule = log nothing). Enable selectively later. === -->
+    <FileCreateTime onmatch="include"/>       <!-- 2 -->
+    <ImageLoad onmatch="include"/>            <!-- 7 -->
+    <RawAccessRead onmatch="include"/>        <!-- 9 -->
+    <ProcessAccess onmatch="include"/>        <!-- 10 -->
+    <FileCreate onmatch="include"/>           <!-- 11 -->
+    <RegistryEvent onmatch="include"/>        <!-- 12/13/14 -->
+    <FileCreateStreamHash onmatch="include"/> <!-- 15 -->
+    <PipeEvent onmatch="include"/>            <!-- 17/18 -->
+    <DnsQuery onmatch="include"/>             <!-- 22 -->
+    <FileDelete onmatch="include"/>           <!-- 23/26 -->
+    <ClipboardChange onmatch="include"/>      <!-- 24 -->
+  </EventFiltering>
+</Sysmon>

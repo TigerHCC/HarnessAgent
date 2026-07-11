@@ -153,3 +153,32 @@ extensions:
     env_keys: []
     timeout: 120
     description: Windows crash/WER analysis (app crashes, hangs, BSOD bugchecks) via local elevated MCP server (127.0.0.1:8779)
+
+  # Windows execution evidence (LOCAL elevated server on this box).
+  # Server: HarnessAgent/mcp/windows_exec/ (start_exec_mcp.ps1 as admin, or install_task.ps1).
+  # Tools: prefetch_list, prefetch_detail, bam_list, userassist_list, shimcache_list,
+  #        exec_timeline, exec_health.
+  exec:
+    type: streamable_http
+    bundled: false
+    name: exec
+    enabled: true
+    uri: http://127.0.0.1:8780/mcp
+    headers: {}
+    env_keys: []
+    timeout: 120
+    description: Windows execution evidence (Prefetch/BAM/UserAssist/ShimCache + timeline) via local elevated MCP server (127.0.0.1:8780)
+
+  # Windows config-drift (LOCAL elevated server on this box).
+  # Server: HarnessAgent/mcp/windows_drift/ (start_drift_mcp.ps1 as admin, or install_task.ps1).
+  # Tools: snapshot_now, list_snapshots, current, diff, what_changed_since, drift_health.
+  drift:
+    type: streamable_http
+    bundled: false
+    name: drift
+    enabled: true
+    uri: http://127.0.0.1:8781/mcp
+    headers: {}
+    env_keys: []
+    timeout: 120
+    description: Windows config-drift (autoruns/services/programs/tasks snapshots + diff) via local elevated MCP server (127.0.0.1:8781)
