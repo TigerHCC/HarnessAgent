@@ -15,6 +15,10 @@
 - ✅ **`netconn`**(8782)— 連線 + 擁有者 process/service + 基線 diff(候選 #5)
 - ✅ **Sysmon** — starter config 備妥(`tools/sysmon/`),餵給現有 eventlog MCP(安裝待使用者執行)
 
+**新電腦一鍵架設**:`setup_goose.ps1`(裝 goose 本體)→ 再跑 **`setup_mcp_servers.ps1`**(elevated):裝
+Python 依賴、註冊+啟動 7 個 MCP 排程、把 extension 註冊進 goose config。冪等、可重跑。Sysmon 另外手動裝
+(kernel driver + EULA,見 `tools/sysmon/README.md`)。
+
 **尚未建置的第一梯隊**:`disk`(USN journal + MFT 空間 + SMART,候選 #6,effort 最高)。
 **第二梯隊候選**(未建):procinspect、etwtrace、memstate、wheadecode、powerdiag、filterstack、winupdate-history。
 每個新 MCP 都經 4 維度對抗式 review + verify(crash 修 18、exec+drift 修 9、netconn 修 7、perfmon 修 7 個確認問題)。
