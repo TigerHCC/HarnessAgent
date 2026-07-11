@@ -226,3 +226,18 @@ extensions:
     env_keys: []
     timeout: 120
     description: Windows storage diagnostics (USN file-change journal + SMART health + volume state) via local elevated MCP server (127.0.0.1:8784)
+
+  # Windows process inspection (LOCAL server on this box; elevated recommended).
+  # Server: HarnessAgent/mcp/windows_procinspect/ (start_procinspect_mcp.ps1, or install_task.ps1).
+  # Tools: who_locks, wait_chain, process_detail, loaded_modules, top_handle_users,
+  #        find_process, procinspect_health.
+  procinspect:
+    type: streamable_http
+    bundled: false
+    name: procinspect
+    enabled: true
+    uri: http://127.0.0.1:8785/mcp
+    headers: {}
+    env_keys: []
+    timeout: 120
+    description: Windows process inspection (who-locks-a-file, hang/deadlock wait chains, loaded modules, handle-leak view) via local MCP server (127.0.0.1:8785)

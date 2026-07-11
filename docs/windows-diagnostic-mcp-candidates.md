@@ -21,7 +21,9 @@ Python 依賴、註冊+啟動 7 個 MCP 排程、把 extension 註冊進 goose c
 (kernel driver + EULA,見 `tools/sysmon/README.md`)。
 
 **第一梯隊已全部建置。** (`disk` v1 涵蓋 USN journal + SMART + volume state;MFT 空間掃描留待 v2。)
-**第二梯隊候選**(未建):procinspect、etwtrace、memstate、wheadecode、powerdiag、filterstack、winupdate-history。
+**第二梯隊進度**:
+- ✅ **`procinspect`**(8785)— 誰鎖檔(Restart Manager)+ 掛死/deadlock(Wait Chain Traversal)+ 載入模組/簽章 + handle 洩漏視圖
+- 未建:etwtrace、memstate、wheadecode、powerdiag、filterstack、winupdate-history。
 每個新 MCP 都經 4 維度對抗式 review + verify(crash 修 18、exec+drift 修 9、netconn 修 7、perfmon 修 7 個確認問題)。
 
 ## 篩選準則

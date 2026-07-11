@@ -60,6 +60,8 @@ $MCPS = @(
      desc="Windows real-time performance counters (CPU/disk-latency/memory/pool via PDH) + baselines via local MCP server (127.0.0.1:8783)" }
   @{ name="disk";     dir="windows_disk";     port=8784; task="Disk-MCP";
      desc="Windows storage diagnostics (USN file-change journal + SMART health + volume state) via local elevated MCP server (127.0.0.1:8784)" }
+  @{ name="procinspect"; dir="windows_procinspect"; port=8785; task="Procinspect-MCP";
+     desc="Windows process inspection (who-locks-a-file, hang/deadlock wait chains, loaded modules, handle-leak view) via local MCP server (127.0.0.1:8785)" }
 )
 
 Write-Host "=== HarnessAgent MCP servers setup (8 diagnostic MCPs) ===" -ForegroundColor Magenta
