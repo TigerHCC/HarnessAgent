@@ -155,7 +155,7 @@ else {
       $added += $m.name
     }
     if ($added.Count) { Ok ("Added extensions to config: " + ($added -join ", ") + "  (backup: $ConfigPath.bak-mcpsetup)") }
-    else { Ok "All 7 extensions already present in config -- no change." }
+    else { Ok ("All $($MCPS.Count) extensions already present in config -- no change.") }
     # sanity: does it still parse as YAML? (best-effort via python)
     & $py -c "import sys,yaml; yaml.safe_load(open(sys.argv[1],encoding='utf-8')); print('config YAML OK')" $ConfigPath 2>&1 | Out-Host
   }

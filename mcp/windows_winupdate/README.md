@@ -31,6 +31,20 @@ Serves `http://127.0.0.1:8788/mcp`. Pure stdlib — calls the WUA COM API + `Get
 PowerShell subprocess (avoids COM apartment-threading issues in the FastMCP workers) and reads pending
 state from the registry. No files written.
 
+## goose extension config
+```yaml
+  winupdate:
+    type: streamable_http
+    bundled: false
+    name: winupdate
+    enabled: true
+    uri: http://127.0.0.1:8788/mcp
+    headers: {}
+    env_keys: []
+    timeout: 120
+    description: Windows Update history + failure HRESULTs + pending-reboot state via local MCP server (127.0.0.1:8788)
+```
+
 ## Typical use
 ```
 update_history(failures_only=True)   # which updates failed, and the decoded reason

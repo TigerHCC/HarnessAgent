@@ -29,6 +29,20 @@ Serves `http://127.0.0.1:8786/mcp`. Pure stdlib -- `ctypes` against ntdll `NtQue
 (SystemPoolTagInformation 0x16 / SystemMemoryListInformation 0x50) + psapi `GetPerformanceInfo`.
 Baselines in `data/` (gitignored; override with `MEMSTATE_BASELINES`).
 
+## goose extension config
+```yaml
+  memstate:
+    type: streamable_http
+    bundled: false
+    name: memstate
+    enabled: true
+    uri: http://127.0.0.1:8786/mcp
+    headers: {}
+    env_keys: []
+    timeout: 120
+    description: Windows memory attribution (pool tags / physical-memory composition / kernel-pool leak hunt) via local elevated MCP server (127.0.0.1:8786)
+```
+
 ## Typical use
 ```
 pool_tags(top_n=15)                 # who's using nonpaged pool now

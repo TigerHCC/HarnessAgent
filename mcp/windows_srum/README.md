@@ -31,7 +31,14 @@ The `srum` extension is already in `config/windows_config.yaml`:
 ```yaml
   srum:
     type: streamable_http
+    bundled: false
+    name: srum
+    enabled: true
     uri: http://127.0.0.1:8777/mcp
+    headers: {}
+    env_keys: []
+    timeout: 120
+    description: Windows SRUM + live system resource usage (CPU/mem/net/power) via local elevated MCP server (127.0.0.1:8777)
 ```
 Deploy it to the live config goose reads:
 ```powershell

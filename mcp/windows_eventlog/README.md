@@ -28,7 +28,20 @@ python -m pip install -r requirements.txt
   `Start-ScheduledTask -TaskName EventLog-MCP`. Remove with `.\uninstall_task.ps1`.
 
 ## Wire into goose
-The `eventlog` extension is in `config/windows_config.yaml`; deploy it to the live config:
+The `eventlog` extension is in `config/windows_config.yaml`:
+```yaml
+  eventlog:
+    type: streamable_http
+    bundled: false
+    name: eventlog
+    enabled: true
+    uri: http://127.0.0.1:8778/mcp
+    headers: {}
+    env_keys: []
+    timeout: 120
+    description: Windows Event Log (system errors + user behavior) via local elevated MCP server (127.0.0.1:8778)
+```
+Deploy it to the live config:
 ```powershell
 Copy-Item ..\..\config\windows_config.yaml "$env:APPDATA\Block\goose\config\config.yaml" -Force
 ```

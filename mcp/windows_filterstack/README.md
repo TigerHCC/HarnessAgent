@@ -37,6 +37,20 @@ registry ImagePath and reads its `CompanyName` (WHQL-signed 3rd-party drivers sh
 Authenticode signer, so CompanyName is the reliable third-party signal). Baselines in `data/`
 (gitignored; override with `FILTERSTACK_BASELINES`).
 
+## goose extension config
+```yaml
+  filterstack:
+    type: streamable_http
+    bundled: false
+    name: filterstack
+    enabled: true
+    uri: http://127.0.0.1:8787/mcp
+    headers: {}
+    env_keys: []
+    timeout: 120
+    description: Windows filter-stack map (filesystem minifilters + NDIS/Winsock network filters + altitude classification) via local elevated MCP server (127.0.0.1:8787)
+```
+
 ## Notes
 - **Read-only**: only *queries* (`fltmc filters/instances`, never `attach`/`detach`); no binding is changed.
 - `third_party` is True/False when the driver's CompanyName resolves, `null` when it can't (honest unknown).

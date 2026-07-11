@@ -52,6 +52,37 @@ Default `streamable_http` (`:8765/mcp`) needs the always-on `dtm-mcp-proxy` syst
 service up (`PersonalKnowledge/dtm_agent/dtm-mcp-proxy.service`). See
 `../docs/install_results.md`.
 
-## Windows MCP servers — `windows_srum/`, `windows_eventlog/`
-Windows-only servers (SRUM live-metrics, Event Log) with `start_*.ps1` launchers
-(run elevated). Reached from Goose over `streamable_http` to their local ports.
+## Windows diagnostic MCP suite (`windows_*/`, 127.0.0.1:8777–8788)
+Twelve local, **read-only** Windows diagnostic MCP servers — a full "what's wrong with this box"
+toolkit. Each is self-contained (`<name>_mcp_server.py` + reader modules, `DESIGN.md`, `README.md`,
+`tests/`, `start_<name>_mcp.ps1`, `install_task.ps1`/`uninstall_task.ps1`), pure-stdlib/ctypes (no pip
+beyond `mcp`/`psutil`/`pywin32`/`dissect.esedb`), and reached from Goose over `streamable_http`.
+Most run **elevated** (they read SYSTEM-hive / kernel data); the launchers self-check admin.
+
+| MCP | Port | What it diagnoses |
+|---|---|---|
+| [`windows_srum`](windows_srum/) | 8777 | SRUM historical per-app CPU/net/energy + live resource snapshot |
+| [`windows_eventlog`](windows_eventlog/) | 8778 | Event Log: system errors + user activity (feeds Sysmon telemetry) |
+| [`windows_crash`](windows_crash/) | 8779 | WER app crashes/hangs + BSOD dump bugcheck decode |
+| [`windows_exec`](windows_exec/) | 8780 | Execution evidence: Prefetch/BAM/UserAssist/ShimCache + timeline |
+| [`windows_drift`](windows_drift/) | 8781 | Config drift: autoruns/services/programs/tasks snapshots + diff |
+| [`windows_netconn`](windows_netconn/) | 8782 | Live connections + owning process/service + baseline diff |
+| [`windows_perfmon`](windows_perfmon/) | 8783 | Real-time PDH counters (disk latency, pool, paging) + baselines |
+| [`windows_disk`](windows_disk/) | 8784 | USN file-change journal + SMART health + volume state |
+| [`windows_procinspect`](windows_procinspect/) | 8785 | Who-locks-a-file, hang/deadlock wait chains, handle-leak view |
+| [`windows_memstate`](windows_memstate/) | 8786 | Pool-tag memory attribution (poolmon) + tag→driver + RamMap |
+| [`windows_filterstack`](windows_filterstack/) | 8787 | Filesystem minifilters (AV/VPN) + NDIS/Winsock network filters |
+| [`windows_winupdate`](windows_winupdate/) | 8788 | Windows Update history + failure HRESULTs + pending-reboot state |
+
+**One-click setup on a new machine** (elevated, idempotent — installs Python deps, registers + starts a
+logon Scheduled Task per server, and registers each extension into goose's `config.yaml`):
+```powershell
+powershell -ExecutionPolicy Bypass -File .\..\setup_goose.ps1          # 1. goose itself + base config
+powershell -ExecutionPolicy Bypass -File .\..\setup_mcp_servers.ps1    # 2. all 12 diagnostic MCPs (Administrator)
+```
+Each server can also be started standalone (`windows_<name>\start_<name>_mcp.ps1`, elevated) or persisted
+via its `install_task.ps1`. The full extension block set is in [`../config/windows_config.yaml`](../config/windows_config.yaml);
+the candidate roadmap + build status is in [`../docs/windows-diagnostic-mcp-candidates.md`](../docs/windows-diagnostic-mcp-candidates.md).
+
+**Sysmon** (separate, in [`../tools/sysmon/`](../tools/sysmon/)) enriches the `eventlog` MCP with process/
+network/driver telemetry — install it manually (kernel driver + EULA); see its README.

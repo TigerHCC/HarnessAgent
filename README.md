@@ -27,6 +27,12 @@ Validated on the Windows 11 dev box on 2026-06-28, and re-validated the same day
 - A tool-calling smoke test that proves it end-to-end
 - A **remote web UI** ([`goose_web/`](goose_web/), served on `:8799`) — chat with the harness
   + DTM tools from any browser on the LAN, with streaming and rendered tool-call cards
+- A **Windows diagnostic MCP suite** — 12 local, read-only servers (`mcp/windows_*/`, ports
+  8777–8788) giving the harness a full "what's wrong with this box" toolkit: SRUM, Event Log,
+  crash/WER, execution evidence, config drift, live network, PDH perf, disk/USN, process
+  inspection, memory attribution, filter stack, and Windows-Update history. One-click install via
+  [`setup_mcp_servers.ps1`](setup_mcp_servers.ps1); see [`mcp/README.md`](mcp/README.md) and the
+  roadmap in [`docs/windows-diagnostic-mcp-candidates.md`](docs/windows-diagnostic-mcp-candidates.md).
 - See [`RUN.md`](RUN.md) for how to launch the harness with DTM support
 
 ## Backends (on GB10)
@@ -74,6 +80,15 @@ run a headless tool-calling smoke test → print how to use it.
 
 **Prerequisite:** the new machine must be on the same LAN as GB10 (reach `192.168.86.44`).
 
+### Windows diagnostic MCP suite (optional, second step)
+After `setup_goose.ps1`, install the 12 local diagnostic MCP servers (elevated, idempotent — installs
+Python deps, registers + starts a logon Scheduled Task per server, and adds each extension to
+`config.yaml`):
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup_mcp_servers.ps1
+```
+Sysmon (enriches the `eventlog` MCP) is installed separately — see [`tools/sysmon/README.md`](tools/sysmon/README.md).
+
 ---
 
 ## Using Goose
@@ -100,8 +115,11 @@ Edit `config.yaml`: set `GOOSE_PROVIDER` to `openai` (vLLM) or `ollama`, and the
 ## Files
 | Path | Purpose |
 |---|---|
-| `setup_goose.ps1` / `setup_goose.sh` | one-click installers for a new machine |
-| `mcp/` | MCP launchers + enable scripts: `qb10_dtm_mcp.sh`/`qb10_pk_mcp.sh` (stdio launchers → GB10-workspace), `enable_dtm_mcp.sh`/`enable_pk_mcp.sh`, `windows_srum/`, `windows_eventlog/` (see `mcp/README.md`) |
+| `setup_goose.ps1` / `setup_goose.sh` | one-click Goose installer for a new machine |
+| `setup_mcp_servers.ps1` | one-click installer for the 12 Windows diagnostic MCP servers (deps + tasks + config) |
+| `mcp/` | MCP launchers + enable scripts: `qb10_dtm_mcp.sh`/`qb10_pk_mcp.sh` (stdio → GB10-workspace), `enable_dtm_mcp.sh`/`enable_pk_mcp.sh`, and the **12 `windows_*/` diagnostic MCPs** (ports 8777–8788 — see `mcp/README.md`) |
+| `tools/sysmon/` | Sysmon starter config (enriches the `eventlog` MCP); install manually |
+| `docs/windows-diagnostic-mcp-candidates.md` | diagnostic-MCP roadmap + build status |
 | `goose_web/` | remote web UI — `server.py` / `server.ps1` (stdlib HTTP→`goose run` bridge), `index.html` (chat page), `serve_web.sh`/`.ps1` (launchers) |
 | `workspace/` | working dir for files the agent creates when driven from the web UI |
 | `RUN.md` | how to launch the harness and use the DTM tools |
