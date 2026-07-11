@@ -5,6 +5,20 @@
 > goose builtins:`developer`(任意 PowerShell/cmd + 檔案編輯)、`memory`、`computercontroller`
 > 產生方式:6 視角平行掃描 + completeness critic(見 §附錄)
 
+## 建置狀態(2026-07-11 更新)
+
+**已建置並上線**(全部本機 elevated、goose_web 探索到、裝了開機排程):
+- ✅ **`crash`**(8779)— WER + BSOD dump 分析(候選 #1)
+- ✅ **`exec`**(8780)— Prefetch+BAM+UserAssist+ShimCache+timeline(候選 #2)
+- ✅ **`perfmon`**(8783)— PDH 即時計數器 + bottleneck + 基線(候選 #3)
+- ✅ **`config-drift`**(8781)— autoruns/services/programs/tasks 快照+diff(候選 #4)
+- ✅ **`netconn`**(8782)— 連線 + 擁有者 process/service + 基線 diff(候選 #5)
+- ✅ **Sysmon** — starter config 備妥(`tools/sysmon/`),餵給現有 eventlog MCP(安裝待使用者執行)
+
+**尚未建置的第一梯隊**:`disk`(USN journal + MFT 空間 + SMART,候選 #6,effort 最高)。
+**第二梯隊候選**(未建):procinspect、etwtrace、memstate、wheadecode、powerdiag、filterstack、winupdate-history。
+每個新 MCP 都經 4 維度對抗式 review + verify(crash 修 18、exec+drift 修 9、netconn 修 7、perfmon 修 7 個確認問題)。
+
 ## 篩選準則
 
 agent 已能透過 `developer` 擴充執行任何 shell/PowerShell。所以一個 MCP 包裝**只有在贏過臨時 shell 時才值得做**:
