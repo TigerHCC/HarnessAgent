@@ -182,3 +182,32 @@ extensions:
     env_keys: []
     timeout: 120
     description: Windows config-drift (autoruns/services/programs/tasks snapshots + diff) via local elevated MCP server (127.0.0.1:8781)
+
+  # Windows live network connections (LOCAL elevated server on this box).
+  # Server: HarnessAgent/mcp/windows_netconn/ (start_netconn_mcp.ps1 as admin, or install_task.ps1).
+  # Tools: connections, listeners, connection_stats, by_remote, baseline_save,
+  #        baseline_diff, netconn_health.
+  netconn:
+    type: streamable_http
+    bundled: false
+    name: netconn
+    enabled: true
+    uri: http://127.0.0.1:8782/mcp
+    headers: {}
+    env_keys: []
+    timeout: 120
+    description: Windows live network connections + owning process/service + baseline diff via local elevated MCP server (127.0.0.1:8782)
+
+  # Windows real-time performance counters via PDH (LOCAL server on this box).
+  # Server: HarnessAgent/mcp/windows_perfmon/ (start_perfmon_mcp.ps1, or install_task.ps1).
+  # Tools: snapshot, bottleneck, counters, baseline_save, baseline_diff, perfmon_health.
+  perfmon:
+    type: streamable_http
+    bundled: false
+    name: perfmon
+    enabled: true
+    uri: http://127.0.0.1:8783/mcp
+    headers: {}
+    env_keys: []
+    timeout: 120
+    description: Windows real-time performance counters (CPU/disk-latency/memory/pool via PDH) + baselines via local MCP server (127.0.0.1:8783)
