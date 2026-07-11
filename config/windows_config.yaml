@@ -241,3 +241,18 @@ extensions:
     env_keys: []
     timeout: 120
     description: Windows process inspection (who-locks-a-file, hang/deadlock wait chains, loaded modules, handle-leak view) via local MCP server (127.0.0.1:8785)
+
+  # Windows memory attribution (LOCAL elevated server on this box).
+  # Server: HarnessAgent/mcp/windows_memstate/ (start_memstate_mcp.ps1 as admin, or install_task.ps1).
+  # Tools: pool_tags, memory_composition, memory_overview, tag_driver,
+  #        baseline_save, baseline_diff, memstate_health.
+  memstate:
+    type: streamable_http
+    bundled: false
+    name: memstate
+    enabled: true
+    uri: http://127.0.0.1:8786/mcp
+    headers: {}
+    env_keys: []
+    timeout: 120
+    description: Windows memory attribution (pool tags / physical-memory composition / kernel-pool leak hunt) via local elevated MCP server (127.0.0.1:8786)
