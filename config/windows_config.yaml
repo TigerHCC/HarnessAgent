@@ -211,3 +211,18 @@ extensions:
     env_keys: []
     timeout: 120
     description: Windows real-time performance counters (CPU/disk-latency/memory/pool via PDH) + baselines via local MCP server (127.0.0.1:8783)
+
+  # Windows storage diagnostics (LOCAL elevated server on this box).
+  # Server: HarnessAgent/mcp/windows_disk/ (start_disk_mcp.ps1 as admin, or install_task.ps1).
+  # Tools: recent_file_changes, directory_churn (USN journal), disk_health, health_baseline_save,
+  #        health_baseline_diff, volume_state, disk_status.
+  disk:
+    type: streamable_http
+    bundled: false
+    name: disk
+    enabled: true
+    uri: http://127.0.0.1:8784/mcp
+    headers: {}
+    env_keys: []
+    timeout: 120
+    description: Windows storage diagnostics (USN file-change journal + SMART health + volume state) via local elevated MCP server (127.0.0.1:8784)

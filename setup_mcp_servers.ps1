@@ -10,8 +10,8 @@
   fresh machine, then this. Requires: an elevated PowerShell (Scheduled Tasks + the servers read
   SYSTEM-hive / kernel data), Python 3 on PATH with pip.
 
-  The 7 servers (all loopback, read-only, streamable HTTP):
-    srum 8777, eventlog 8778, crash 8779, exec 8780, drift 8781, netconn 8782, perfmon 8783
+  The 8 servers (all loopback, read-only, streamable HTTP):
+    srum 8777, eventlog 8778, crash 8779, exec 8780, drift 8781, netconn 8782, perfmon 8783, disk 8784
 
 .PARAMETER SkipDeps      Skip `pip install` of Python dependencies.
 .PARAMETER SkipTasks     Don't register Scheduled Tasks (just start the servers once, this session).
@@ -58,9 +58,11 @@ $MCPS = @(
      desc="Windows live network connections + owning process/service + baseline diff via local elevated MCP server (127.0.0.1:8782)" }
   @{ name="perfmon";  dir="windows_perfmon";  port=8783; task="Perfmon-MCP";
      desc="Windows real-time performance counters (CPU/disk-latency/memory/pool via PDH) + baselines via local MCP server (127.0.0.1:8783)" }
+  @{ name="disk";     dir="windows_disk";     port=8784; task="Disk-MCP";
+     desc="Windows storage diagnostics (USN file-change journal + SMART health + volume state) via local elevated MCP server (127.0.0.1:8784)" }
 )
 
-Write-Host "=== HarnessAgent MCP servers setup (7 diagnostic MCPs) ===" -ForegroundColor Magenta
+Write-Host "=== HarnessAgent MCP servers setup (8 diagnostic MCPs) ===" -ForegroundColor Magenta
 
 # --- 0. Prereqs ---
 $id = [Security.Principal.WindowsIdentity]::GetCurrent()

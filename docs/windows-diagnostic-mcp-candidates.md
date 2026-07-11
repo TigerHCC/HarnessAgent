@@ -13,13 +13,14 @@
 - ✅ **`perfmon`**(8783)— PDH 即時計數器 + bottleneck + 基線(候選 #3)
 - ✅ **`config-drift`**(8781)— autoruns/services/programs/tasks 快照+diff(候選 #4)
 - ✅ **`netconn`**(8782)— 連線 + 擁有者 process/service + 基線 diff(候選 #5)
+- ✅ **`disk`**(8784)— USN 檔案變更 journal + SMART 健康 + volume 狀態(候選 #6)**← 第一梯隊完成**
 - ✅ **Sysmon** — starter config 備妥(`tools/sysmon/`),餵給現有 eventlog MCP(安裝待使用者執行)
 
 **新電腦一鍵架設**:`setup_goose.ps1`(裝 goose 本體)→ 再跑 **`setup_mcp_servers.ps1`**(elevated):裝
 Python 依賴、註冊+啟動 7 個 MCP 排程、把 extension 註冊進 goose config。冪等、可重跑。Sysmon 另外手動裝
 (kernel driver + EULA,見 `tools/sysmon/README.md`)。
 
-**尚未建置的第一梯隊**:`disk`(USN journal + MFT 空間 + SMART,候選 #6,effort 最高)。
+**第一梯隊已全部建置。** (`disk` v1 涵蓋 USN journal + SMART + volume state;MFT 空間掃描留待 v2。)
 **第二梯隊候選**(未建):procinspect、etwtrace、memstate、wheadecode、powerdiag、filterstack、winupdate-history。
 每個新 MCP 都經 4 維度對抗式 review + verify(crash 修 18、exec+drift 修 9、netconn 修 7、perfmon 修 7 個確認問題)。
 
