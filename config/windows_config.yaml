@@ -138,3 +138,18 @@ extensions:
     env_keys: []
     timeout: 120
     description: Windows Event Log (system errors + user behavior) via local elevated MCP server (127.0.0.1:8778)
+
+  # Windows crash/WER analysis (LOCAL elevated server on this box).
+  # Server: HarnessAgent/mcp/windows_crash/ (start_crash_mcp.ps1 as admin, or install_task.ps1).
+  # Tools: crash_summary, list_crashes, get_crash (WER app crashes/hangs),
+  #        list_dumps, analyze_dump (BSOD bugcheck decode), crash_health.
+  crash:
+    type: streamable_http
+    bundled: false
+    name: crash
+    enabled: true
+    uri: http://127.0.0.1:8779/mcp
+    headers: {}
+    env_keys: []
+    timeout: 120
+    description: Windows crash/WER analysis (app crashes, hangs, BSOD bugchecks) via local elevated MCP server (127.0.0.1:8779)
