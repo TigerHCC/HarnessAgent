@@ -51,6 +51,18 @@ def test_preview_shows_default_client_id(monkeypatch):
     assert "--id 675f1370-b7ce-4113-8d6e-a128ee3bb74b" in r["command_line"]
 
 
+def test_no_json_cli_flag_in_argv(monkeypatch):
+    # The real DtpUtilHelper utils REJECT `--json` as a per-subcommand arg (parse error -> the util
+    # prints help and does nothing). JSON output is requested via the DTPUTIL_JSON_OUTPUT env var only,
+    # so the built argv must never contain --json. (Regression: found in phase-1 live testing.)
+    _patch(monkeypatch)
+    for util, cmd in [("instrumentation", "metadata"), ("transmission", "collect-transmit"),
+                      ("analytics", "custom-analysis"), ("dtmutil", "workflow status")]:
+        r = srv._dispatch(util, cmd, ["--datatype-name", "X"], "")
+        cl = r.get("command_line", "")
+        assert "--json" not in cl, "%s %s: argv must not contain --json (got %r)" % (util, cmd, cl)
+
+
 def test_safe_command_runs_without_token(monkeypatch):
     _patch(monkeypatch)
     r = srv._dispatch("instrumentation", "metadata", [], "")

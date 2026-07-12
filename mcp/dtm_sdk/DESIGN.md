@@ -11,7 +11,7 @@ suite**.
 |---|---|
 | `config.py` | Path resolution only. Loads `config.json`, does `${}` expansion → env override (`DTM_SDK_*`) → as-is, and records a `_resolved` existence map (`raw`/`resolved`/`exists`/`source`). Also exposes `default_client_id` / `default_client_name` (the default `--id`/`--appName`). No subprocess, no util knowledge. |
 | `policy.py` | Command classification + confirm-token logic. **Pure: no I/O, no subprocess.** Owns the five util→command lists (65), the 24-command safe allowlist, the egress/state category maps, `classify`/`is_safe`, `validate_command`, and `make_token`/`verify_token`. The source of truth for what is safe. |
-| `runner.py` | Subprocess execution. Builds an **argv list (never a shell)**, runs with a timeout, and parses stdout `json → yaml → text` with the raw text always preserved. Toggles `--json` and `DTPUTIL_JSON_OUTPUT=true` per the caller. Returns a uniform result dict. |
+| `runner.py` | Subprocess execution. Builds an **argv list (never a shell)**, runs with a timeout, and parses stdout `json → yaml → text` with the raw text always preserved. Requests JSON via the `DTPUTIL_JSON_OUTPUT=true` env var (NOT a `--json` CLI flag — the real utils reject it per-subcommand). Returns a uniform result dict. |
 | `datatypes.py` | CSV lookup over the three datatype tables: case-insensitive substring search, exact `find_one`, and `difflib`-based near-miss `suggest`. |
 | `howto.py` | Section extraction from `Sample_Utilities_HowTo.md` — a util's section and a single command's block — so options are read from the doc rather than hard-coded. |
 | `dtm_sdk_mcp_server.py` | The FastMCP server: 9 tools, lazy config/table/HowTo loading, the in-process confirm-token store, and `_dispatch` (the shared validate → classify → issue-preview/verify-token → run body behind the five `dtm_run_*` tools). |
@@ -105,9 +105,13 @@ heartbeats, emergencies — is gated.
 
 ## Runtime notes
 
-- Utils emit YAML by default. For the four `DtpUtilHelper` utils (`dtmutil`, `instrumentation`,
-  `analytics`, `transmission`) the runner sets `DTPUTIL_JSON_OUTPUT=true` and passes `--json`.
-  **`DTMPlatinumUtil` gets neither** — it does not share `DtpUtilHelper`.
+- For the four `DtpUtilHelper` utils (`dtmutil`, `instrumentation`, `analytics`, `transmission`) the
+  runner requests JSON via the `DTPUTIL_JSON_OUTPUT=true` **env var only**. It does **not** pass a
+  `--json` CLI flag: phase-1 live testing showed the real utils reject `--json` as a per-subcommand
+  argument (System.CommandLine emits `Unrecognized command or argument '--json'`, prints the command's
+  help, and exits 0 — so the command silently does nothing). `DTMPlatinumUtil` gets neither (no
+  `DtpUtilHelper`). Note some commands (e.g. `metadata`) emit human-readable text regardless, which the
+  `json → yaml → text` fallback handles.
 - Output parsing is `json.loads → yaml.safe_load → raw text`. A parse failure never turns a successful
   command (exit 0) into a failure; the raw stdout is always preserved.
 - Commands are validated against `^[a-z0-9][a-z0-9 -]*$` and executed as an argv list, never via a shell,

@@ -25,7 +25,10 @@ _TABLES = {}           # kind -> rows
 _HOWTO_TEXT = None
 _TOKENS = {}           # token -> (util, command, args, issued_at)
 
-# util key -> DtpUtilHelper JSON support (platinum does NOT share it)
+# Utils that share DtpUtilHelper: request JSON output via the DTPUTIL_JSON_OUTPUT env var.
+# NOT via a --json CLI flag -- the real utils reject --json as a per-subcommand argument
+# (System.CommandLine parse error -> the util prints help and does nothing). Platinum does not
+# share DtpUtilHelper, so it is excluded. (Found in phase-1 live testing.)
 _JSON_UTILS = {"dtmutil", "instrumentation", "analytics", "transmission"}
 
 
@@ -138,8 +141,7 @@ def _dispatch(util, command, args, confirm_token):
                        "state": "changes DTP/system configuration",
                        "action": "triggers work or does not terminate on its own",
                        "unknown": "is not on the safe allowlist (unrecognised command)"}
-            argv = runner.build_argv(exe, command, _with_client_id(args),
-                                     json_flag=(util in _JSON_UTILS))
+            argv = runner.build_argv(exe, command, _with_client_id(args), json_flag=False)
             return {"requires_confirmation": True, "confirm_token": token,
                     "command_line": " ".join(argv), "category": category,
                     "reason": reasons.get(category, reasons["unknown"]),
@@ -147,7 +149,7 @@ def _dispatch(util, command, args, confirm_token):
 
     return runner.run(exe, command, _with_client_id(args),
                       timeout=_timeout_for(util, command),
-                      json_flag=(util in _JSON_UTILS), env_json=(util in _JSON_UTILS))
+                      json_flag=False, env_json=(util in _JSON_UTILS))
 
 
 # ---- lookup tools ---------------------------------------------------------

@@ -70,7 +70,7 @@ get a preview:
 {
   "requires_confirmation": true,
   "confirm_token": "a1b2c3d4e5f60718",
-  "command_line": "...DtpTransmissionUtil.exe --json collect-transmit --datatype-name X",
+  "command_line": "...DtpTransmissionUtil.exe collect-transmit --datatype-name X --id 675f1370-...",
   "category": "egress",
   "reason": "transmits data from this machine to Dell",
   "expires_in_seconds": 120

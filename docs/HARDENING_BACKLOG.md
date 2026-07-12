@@ -12,13 +12,16 @@ Severity: **Important** = wrong/fragile behaviour a user can hit · **Minor** = 
 _Seeded from the 2026-07-12 audit of the 12 diagnostic MCPs and goose_web. Not yet verified beyond a
 code read — the loop must reproduce each one before fixing it, and move it to `## Rejected` if it can't._
 
-- **[Important] The 12 MCP servers have no authentication.** They bind `127.0.0.1` and accept any
-  caller, so *any* unprivileged local process can read data that would otherwise require Administrator
-  (SRUM, Security log, Prefetch, pool tags). Read-only, so it's information disclosure rather than
-  privilege escalation — but it is effectively a UAC-free window onto admin-level data.
-  **Needs a user decision before implementing** (a shared token via the extension's `headers:` is the
-  obvious minimal fix, but it touches all 12 servers + `config.yaml` + the installer). Do not
-  unilaterally change the security model — ask.
+- **[Important, RAISED] The loopback MCP servers have no authentication.** They bind `127.0.0.1` and
+  accept any caller, so *any* unprivileged local process can reach them. For the 12 read-only diagnostic
+  MCPs that is information disclosure (a UAC-free window onto admin-level data: SRUM, Security log,
+  Prefetch, pool tags). **`dtmsdk` (port 8789) raises the stakes: it is NOT read-only** — a local process
+  could drive DTP, transmit telemetry to Dell, or change DTP config through it. dtmsdk's confirm-token
+  gate is an argv binding, not a real second factor (deterministic, self-serviceable by the caller — see
+  `mcp/dtm_sdk/DESIGN.md`), so it does not mitigate an unauthenticated local caller. A per-machine shared
+  token (via each extension's `headers:`) would close both. **Needs a user decision before implementing**
+  (touches all 13 servers + `config.yaml` + the installer). Do not unilaterally change the security model
+  — ask.
 
 - **[Minor] `RUN.md` never mentions the Windows diagnostic MCP suite.** `README.md` points at it for
   "how to launch the harness", but it covers only the GB10/DTM/PK side — a reader looking for

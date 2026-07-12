@@ -214,9 +214,11 @@ from an **elevated** process, and the caller here is a language model.
 
 ## Execution and output
 
-- Utils output **YAML by default, JSON with `--json`** (via `DtpUtilHelper`). The runner sets
-  `DTPUTIL_JSON_OUTPUT=true` and passes `--json` for the four utils that share `DtpUtilHelper`.
-- **`DTMPlatinumUtil` does not share `DtpUtilHelper`** and has no `--json`; its output is parsed on a
+- Utils output **YAML by default**; the four `DtpUtilHelper` utils honour a JSON-output request via the
+  `DTPUTIL_JSON_OUTPUT=true` env var. *(Implementation note: the runner sets that env var but does NOT
+  pass a `--json` CLI flag — phase-1 live testing found the real utils reject `--json` per-subcommand and
+  print help instead of running. Some commands like `metadata` emit text regardless; the parser handles it.)*
+- **`DTMPlatinumUtil` does not share `DtpUtilHelper`**; its output is parsed on a
   best-effort basis.
 - Parse order: `json.loads` → `yaml.safe_load` → raw text. **A parse failure never turns a successful
   command into a reported failure** — `stdout_raw` is always returned.
