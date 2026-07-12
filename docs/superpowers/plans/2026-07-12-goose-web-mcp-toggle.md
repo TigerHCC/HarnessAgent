@@ -809,9 +809,18 @@ In the **discoverer** runspace loop (~lines 330-335), replace `if (-not $e.enabl
                 if (-not $e.enabled -and -not (Test-Togglable $e)) { continue }
 ```
 
-- [ ] **Step 4: Pass the config path + fns text to the workers**
+- [ ] **Step 4: Add a config-write lock + pass the config path + fns text to the workers**
 
-In the `$S = @{ … }` bundle (~lines 395-400), add two entries:
+First, add a shared lock object to the synchronized state so config writes can be serialized across the worker runspaces (parity with the Python `_config_write_lock`). Change the `$Shared` initialization (~line 121):
+```powershell
+$Shared = [hashtable]::Synchronized(@{ seen = @{}; locks = @{} })
+```
+to:
+```powershell
+$Shared = [hashtable]::Synchronized(@{ seen = @{}; locks = @{}; cfgWriteLock = (New-Object object) })
+```
+
+Then, in the `$S = @{ … }` bundle (~lines 395-400), add two entries:
 ```powershell
     gooseConfig = $GooseConfigPath; discoveryFns = $DiscoveryFns
 ```
@@ -841,8 +850,13 @@ Add this function next to `Handle-Upload` inside the worker:
         foreach ($e in (Parse-GooseExtensions $S.gooseConfig)) { if ($e.id -eq $extId) { $match = $e; break } }
         if ($null -eq $match) { Send-Json $ctx @{ error = 'unknown extension' } 404; return }
         if (-not (Test-Togglable $match)) { Send-Json $ctx @{ error = 'extension not togglable' } 403; return }
+        # serialize config writes across worker runspaces (parity with Python _config_write_lock)
+        $werr = $null
+        [System.Threading.Monitor]::Enter($S.shared.cfgWriteLock)
         try { [void](Set-ExtensionEnabled $S.gooseConfig $extId $enabled) }
-        catch { Send-Json $ctx @{ error = ([string]$_) } 500; return }
+        catch { $werr = [string]$_ }
+        finally { [System.Threading.Monitor]::Exit($S.shared.cfgWriteLock) }
+        if ($werr) { Send-Json $ctx @{ error = $werr } 500; return }
         # immediate snapshot update so the next /api/health reflects it
         try {
             $shared = $S.shared
