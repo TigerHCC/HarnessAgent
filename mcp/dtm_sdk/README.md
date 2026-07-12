@@ -117,8 +117,15 @@ so `dtm_health()` can point at the exact failing key instead of surfacing a bare
 
 **Redeploying to a new machine or a new Samples build is a one-liner: change `samples_root`.** Every exe
 path is expressed relative to it (`${samples_root}/…`), so pointing `samples_root` at the new
-`DTPSamples-x.y.z/Samples` folder repoints all five utilities at once. (`app_id` and `app_name` must be
-set together or both left null.)
+`DTPSamples-x.y.z/Samples` folder repoints all five utilities at once.
+
+**Default client id.** `default_client_id` (shipped as `675f1370-b7ce-4113-8d6e-a128ee3bb74b`) is passed
+as `--id <id>` on every command for all five utils — **unless the caller already supplied `--id`** in
+`args`, in which case the caller's value wins ("default" = used when not specified). `default_client_name`
+is optional; when set it adds `--appName`. Note `675f1370-…` is the built-in default for
+instrumentation/analytics/transmission; DTMUtil and Platinum have different built-in defaults, so if one of
+those later rejects a custom id without an `--appName`, set `default_client_name` or pass `--id`/`--appName`
+explicitly. Override the default per machine with `DTM_SDK_DEFAULT_CLIENT_ID`.
 
 ---
 

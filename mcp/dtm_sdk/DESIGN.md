@@ -9,7 +9,7 @@ suite**.
 
 | Module | Responsibility |
 |---|---|
-| `config.py` | Path resolution only. Loads `config.json`, does `${}` expansion → env override (`DTM_SDK_*`) → as-is, and records a `_resolved` existence map (`raw`/`resolved`/`exists`/`source`). Raises `ConfigError` on `app_id` xor `app_name`. No subprocess, no util knowledge. |
+| `config.py` | Path resolution only. Loads `config.json`, does `${}` expansion → env override (`DTM_SDK_*`) → as-is, and records a `_resolved` existence map (`raw`/`resolved`/`exists`/`source`). Also exposes `default_client_id` / `default_client_name` (the default `--id`/`--appName`). No subprocess, no util knowledge. |
 | `policy.py` | Command classification + confirm-token logic. **Pure: no I/O, no subprocess.** Owns the five util→command lists (65), the 24-command safe allowlist, the egress/state category maps, `classify`/`is_safe`, `validate_command`, and `make_token`/`verify_token`. The source of truth for what is safe. |
 | `runner.py` | Subprocess execution. Builds an **argv list (never a shell)**, runs with a timeout, and parses stdout `json → yaml → text` with the raw text always preserved. Toggles `--json` and `DTPUTIL_JSON_OUTPUT=true` per the caller. Returns a uniform result dict. |
 | `datatypes.py` | CSV lookup over the three datatype tables: case-insensitive substring search, exact `find_one`, and `difflib`-based near-miss `suggest`. |
@@ -64,6 +64,18 @@ issued for `collect-transmit --datatype-name X` produces a different digest for 
 to re-issuing a fresh preview instead of executing. The token is deleted on use (single-use) and dies after
 the 120-second TTL. This is verified by `test_token_bound_to_args`, `test_token_bound_to_command`,
 `test_token_expires`, and the server-level single-use / wrong-command tests.
+
+**What the token is and is not.** It is a *binding* mechanism, not a human-approval gate. The digest is
+deterministic (a pure function of util+command+args, no nonce or server secret), so the agent obtains a
+valid token simply by calling the tool once to receive the preview, then calling again with it. That is by
+design: nothing at the MCP layer can pause for a human — the tool returns to Goose, not to a person. So the
+gate delivers three concrete things: (a) it makes a mutating/egress action impossible to trigger in a
+*single* call, forcing a deliberate second step; (b) it binds that confirmation to the exact argv, so a
+confirmation can never be replayed onto a different command; and (c) the preview surfaces the full
+`command_line` + `reason` + `category`, so a human watching Goose's output sees exactly what is about to be
+transmitted or changed. It does **not** stop a fully autonomous agent that has decided to proceed. A real
+human-in-the-loop gate would need enforcement on the Goose/client side, or per-machine authentication on the
+MCP (the shared open item in `docs/HARDENING_BACKLOG.md`).
 
 ## The 24 / 41 split
 

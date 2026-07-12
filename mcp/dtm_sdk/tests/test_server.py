@@ -19,6 +19,38 @@ def _patch(monkeypatch, exe="FAKE.exe"):
     monkeypatch.setattr(srv.runner, "run", _fake_run)
 
 
+def test_default_client_id_injected(monkeypatch):
+    monkeypatch.setattr(srv, "cfg", lambda: {
+        "default_client_id": "675f1370-b7ce-4113-8d6e-a128ee3bb74b", "default_client_name": None})
+    out = srv._with_client_id(["--datatype-name", "X"])
+    assert out == ["--id", "675f1370-b7ce-4113-8d6e-a128ee3bb74b", "--datatype-name", "X"]
+
+
+def test_caller_id_not_overridden(monkeypatch):
+    monkeypatch.setattr(srv, "cfg", lambda: {
+        "default_client_id": "675f1370-b7ce-4113-8d6e-a128ee3bb74b", "default_client_name": None})
+    out = srv._with_client_id(["--id", "custom-id", "--foo"])
+    assert out == ["--id", "custom-id", "--foo"]   # caller's id wins; default not added
+    assert out.count("--id") == 1
+
+
+def test_default_client_name_appended_when_set(monkeypatch):
+    monkeypatch.setattr(srv, "cfg", lambda: {"default_client_id": "abc", "default_client_name": "MyApp"})
+    assert srv._with_client_id([]) == ["--id", "abc", "--appName", "MyApp"]
+
+
+def test_no_default_when_unset(monkeypatch):
+    monkeypatch.setattr(srv, "cfg", lambda: {"default_client_id": None})
+    assert srv._with_client_id(["--foo"]) == ["--foo"]
+
+
+def test_preview_shows_default_client_id(monkeypatch):
+    # end-to-end: the shipped config.json default id surfaces in the confirmation preview
+    _patch(monkeypatch)
+    r = srv._dispatch("transmission", "collect-transmit", ["--datatype-name", "X"], "")
+    assert "--id 675f1370-b7ce-4113-8d6e-a128ee3bb74b" in r["command_line"]
+
+
 def test_safe_command_runs_without_token(monkeypatch):
     _patch(monkeypatch)
     r = srv._dispatch("instrumentation", "metadata", [], "")

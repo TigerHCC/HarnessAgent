@@ -91,11 +91,21 @@ def _timeout_for(util, command):
     return int(c.get("timeout_overrides", {}).get(key, c.get("timeout_seconds", 120)))
 
 
-def _with_appid(args):
+def _with_client_id(args):
+    """Prepend the default --id (and --appName if configured) for every util, UNLESS the caller
+    already passed --id -- 'default' means 'used when not specified'. The configured default id
+    (675f1370-... out of the box) is the shared default for instrumentation/analytics/transmission;
+    dtmutil and platinum have different built-in defaults, so if one of those later rejects a custom
+    id without an --appName, set default_client_name (or pass --id/--appName explicitly in args)."""
+    args = list(args)
     c = cfg()
-    if c.get("app_id") and c.get("app_name"):
-        return ["--id", c["app_id"], "--appName", c["app_name"]] + list(args)
-    return list(args)
+    cid = c.get("default_client_id")
+    if not cid or any(a == "--id" or a.startswith("--id=") for a in args):
+        return args
+    extra = ["--id", cid]
+    if c.get("default_client_name"):
+        extra += ["--appName", c["default_client_name"]]
+    return extra + args
 
 
 def _dispatch(util, command, args, confirm_token):
@@ -128,14 +138,14 @@ def _dispatch(util, command, args, confirm_token):
                        "state": "changes DTP/system configuration",
                        "action": "triggers work or does not terminate on its own",
                        "unknown": "is not on the safe allowlist (unrecognised command)"}
-            argv = runner.build_argv(exe, command, _with_appid(args),
+            argv = runner.build_argv(exe, command, _with_client_id(args),
                                      json_flag=(util in _JSON_UTILS))
             return {"requires_confirmation": True, "confirm_token": token,
                     "command_line": " ".join(argv), "category": category,
                     "reason": reasons.get(category, reasons["unknown"]),
                     "expires_in_seconds": policy.TOKEN_TTL_SECONDS}
 
-    return runner.run(exe, command, _with_appid(args),
+    return runner.run(exe, command, _with_client_id(args),
                       timeout=_timeout_for(util, command),
                       json_flag=(util in _JSON_UTILS), env_json=(util in _JSON_UTILS))
 
@@ -190,7 +200,7 @@ def dtm_health() -> dict:
         "datatype_tables": {k: {"exists": c["_resolved"].get("datatype_tables.%s" % k, {}).get("exists"),
                                 "rows": len(_tables().get(k, []))} for k in c.get("datatype_tables", {})},
         "howto": c["_resolved"].get("howto"),
-        "app_id_configured": bool(c.get("app_id")),
+        "default_client_id": c.get("default_client_id"),
     }
 
 

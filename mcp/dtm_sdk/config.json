@@ -17,8 +17,8 @@
   },
   "howto": "${docs_root}/Sample_Utilities_HowTo.md",
 
-  "app_id": null,
-  "app_name": null,
+  "default_client_id": "675f1370-b7ce-4113-8d6e-a128ee3bb74b",
+  "default_client_name": null,
 
   "timeout_seconds": 120,
   "timeout_overrides": { "transmission:collect-transmit": 600 }

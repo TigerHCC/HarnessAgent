@@ -14,10 +14,6 @@ REPO_ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
 _VAR_RE = re.compile(r"\$\{([a-z_]+)\}")
 
 
-class ConfigError(Exception):
-    pass
-
-
 def env_key(dotted):
     return "DTM_SDK_" + dotted.upper().replace(".", "_")
 
@@ -89,12 +85,9 @@ def load(path=None):
     cfg["timeout_seconds"] = int(ts)
     cfg.setdefault("timeout_overrides", {})
 
-    for scalar in ("app_id", "app_name", "samples_root", "docs_root"):
+    for scalar in ("default_client_id", "default_client_name", "samples_root", "docs_root"):
         if env_key(scalar) in os.environ:
             cfg[scalar] = os.environ[env_key(scalar)]
-
-    if bool(cfg.get("app_id")) != bool(cfg.get("app_name")):
-        raise ConfigError("app_id and app_name must be set together (or both left null)")
 
     cfg["_resolved"] = resolved_map
     return cfg

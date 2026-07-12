@@ -85,8 +85,8 @@ override → auto-probe fallback**.
   },
   "howto": "${docs_root}/Sample_Utilities_HowTo.md",
 
-  "app_id": null,
-  "app_name": null,
+  "default_client_id": "675f1370-b7ce-4113-8d6e-a128ee3bb74b",
+  "default_client_name": null,
 
   "timeout_seconds": 120,
   "timeout_overrides": { "transmission:collect-transmit": 600 },
@@ -101,9 +101,12 @@ override → auto-probe fallback**.
 - **Auto-probe:** if an executable path does not exist, probe a small list of conventional roots for
   a directory matching `DTPSamples-*/Samples`. A probe hit is *reported* by `dtm_health()`, never
   silently substituted without being visible.
-- **`app_id` / `app_name`:** optional. If set, both are injected into every command as `--id` / `--appName`,
-  suppressing the util's red "using default application ID" warning. The HowTo states they must be
-  changed together, so the config loader **rejects setting one without the other**.
+- **`default_client_id` / `default_client_name`:** the default `--id` (and optional `--appName`) injected
+  into every command for all five utils — **unless the caller already passed `--id`**, in which case the
+  caller's value wins ("default" = used when not specified). Ships as `675f1370-…`, the shared built-in
+  default for instrumentation/analytics/transmission. `default_client_name` is optional (id-only is valid;
+  it is a default, not a mandatory pair). *(Revised after the initial `app_id`/`app_name` pairing design,
+  per the requirement that all utils default to `--id 675f1370-…`.)*
 
 `dtm_health()` reports, for every configured path: the raw value, the resolved value, whether it
 exists, and which resolution step produced it. A missing exe must produce a message naming the config
@@ -272,8 +275,8 @@ Run in the normal suite:
 - **`policy`** — classification of all 65 commands; token issue/verify; **token bound to argv** (a
   token for command A is refused for command B); expiry; single-use; `blocked` hard-deny; unknown
   command → requires confirmation.
-- **`config`** — `${}` expansion, env override precedence, missing-path reporting, `app_id`-without-
-  `app_name` rejection.
+- **`config`** — `${}` expansion, env override precedence, missing-path reporting, `default_client_id`
+  passthrough + env override.
 - **`datatypes`** — case-insensitive resolve, GUID lookup, search, near-miss suggestion.
 - **`runner`** — against a **fake exe** (a Python script that echoes its argv and exits with a chosen
   code): argv construction, `--json` injection, env injection, exit codes, timeout + partial output,
