@@ -2,3 +2,10 @@
 # goose_web runtime logs
 goose_web/server_run.out
 goose_web/server_run.err
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# goose_web runtime artifacts (workspace/.goose/memory is tracked deliberately)
+workspace/uploads/
