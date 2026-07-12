@@ -20,6 +20,17 @@ code read — the loop must reproduce each one before fixing it, and move it to 
   obvious minimal fix, but it touches all 12 servers + `config.yaml` + the installer). Do not
   unilaterally change the security model — ask.
 
+- **[Minor] `windows_crash` can't find `cdb.exe` on Windows-on-ARM.** `dump_reader.py:268-269`
+  hardcodes `Windows Kits\{10,11}\Debuggers\x64\cdb.exe`; on ARM64 the Debugging Tools install under
+  `Debuggers\arm64\`. Effect: `_find_cdb()` always misses, so BSOD bugcheck decoding silently degrades
+  to the header-only parse (cdb is optional, so it doesn't crash). Note the same file already knows
+  `0xAA64: "ARM64"` (`:31`) — it can *read* ARM64 dumps, it just can't find an ARM64 debugger. Fix:
+  probe the arm64/x86 dirs too, or pick by `platform.machine()`. **Unverifiable here — no ARM64 box.**
+  (Context: goose ships no Windows ARM64 build and would run under x64 emulation, but the Python MCPs
+  can run native ARM64 — `psutil` and `pywin32` both publish `win_arm64` wheels, and the ctypes structs
+  are pointer-size portable since ARM64 Windows is LLP64 like x64. Architecture doesn't need to match
+  across the loopback HTTP boundary.)
+
 - **[Minor] `RUN.md` never mentions the Windows diagnostic MCP suite.** `README.md` points at it for
   "how to launch the harness", but it covers only the GB10/DTM/PK side — a reader looking for
   Windows-MCP usage finds nothing. Decide: extend it, or narrow its stated scope.
