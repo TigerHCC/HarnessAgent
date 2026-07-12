@@ -20,17 +20,6 @@ code read — the loop must reproduce each one before fixing it, and move it to 
   obvious minimal fix, but it touches all 12 servers + `config.yaml` + the installer). Do not
   unilaterally change the security model — ask.
 
-- **[Minor] `windows_crash` can't find `cdb.exe` on Windows-on-ARM.** `dump_reader.py:268-269`
-  hardcodes `Windows Kits\{10,11}\Debuggers\x64\cdb.exe`; on ARM64 the Debugging Tools install under
-  `Debuggers\arm64\`. Effect: `_find_cdb()` always misses, so BSOD bugcheck decoding silently degrades
-  to the header-only parse (cdb is optional, so it doesn't crash). Note the same file already knows
-  `0xAA64: "ARM64"` (`:31`) — it can *read* ARM64 dumps, it just can't find an ARM64 debugger. Fix:
-  probe the arm64/x86 dirs too, or pick by `platform.machine()`. **Unverifiable here — no ARM64 box.**
-  (Context: goose ships no Windows ARM64 build and would run under x64 emulation, but the Python MCPs
-  can run native ARM64 — `psutil` and `pywin32` both publish `win_arm64` wheels, and the ctypes structs
-  are pointer-size portable since ARM64 Windows is LLP64 like x64. Architecture doesn't need to match
-  across the loopback HTTP boundary.)
-
 - **[Minor] `RUN.md` never mentions the Windows diagnostic MCP suite.** `README.md` points at it for
   "how to launch the harness", but it covers only the GB10/DTM/PK side — a reader looking for
   Windows-MCP usage finds nothing. Decide: extend it, or narrow its stated scope.
@@ -55,6 +44,20 @@ code read — the loop must reproduce each one before fixing it, and move it to 
   committing or leftover scratch worth deleting/ignoring.
 
 ## Done
+
+- **[Minor] `windows_crash` couldn't find `cdb.exe` on Windows-on-ARM.** `_find_cdb()` hardcoded
+  `Debuggers\x64\cdb.exe`, but the Debugging Tools install per-architecture, so on ARM64 the probe
+  always missed and BSOD decoding silently degraded to the header-only parse. Now picks the arch dirs
+  the *process* can execute (`platform.machine()`), native first: ARM64 → `arm64` then emulated `x64`;
+  AMD64 → `x64` only, so an x64 box can never pick up a cross-installed arm64 cdb it can't run.
+  Behaviour on x64 is byte-identical to before — there's a regression test asserting exactly that.
+  Still unverified on real ARM64 hardware (no such box here); the *logic* is tested by monkeypatching
+  `platform.machine()`. → `d9caf04`
+
+  Context: goose ships no Windows ARM64 build (checked: v1.41.0 has only `x86_64-pc-windows-msvc`), so
+  it runs x64-emulated there — but the Python MCPs can run native ARM64 (`psutil` and `pywin32` both
+  publish `win_arm64` wheels, and the ctypes structs are portable because ARM64 Windows is LLP64 like
+  x64). The two need not match: architecture doesn't cross the loopback HTTP boundary.
 
 - **[Important] goose_web mangled non-ASCII input.** `HttpListenerRequest.ContentEncoding` fell back to
   the system ANSI codepage (Big5 here) because the browser sends `application/json` with no `charset`,

@@ -18,6 +18,7 @@ import ctypes
 import datetime as dt
 import mmap
 import os
+import platform
 import re
 import struct
 
@@ -257,20 +258,34 @@ def _parse_user_dump_file(path):
 
 
 # --- cdb (optional) --------------------------------------------------------
+# The Debugging Tools ship one cdb.exe per architecture (Debuggers\x64, \arm64, \x86). Probe only the
+# ones this process can actually execute, native first. platform.machine() reports the *process*
+# architecture, which is exactly the right predicate: an x64 Python emulated on an ARM64 host says
+# AMD64 and should launch the (also emulated) x64 cdb. Probing every arch dir instead would let an x64
+# box pick up a cross-installed arm64 cdb.exe it cannot run.
+_CDB_ARCH_DIRS = {"ARM64": ("arm64", "x64"), "AMD64": ("x64",), "X86": ("x86",)}
+
+
+def _cdb_candidates():
+    arch_dirs = _CDB_ARCH_DIRS.get(platform.machine().upper(), ("x64",))
+    candidates = []
+    for base in (os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles")):
+        if base:
+            for kit in ("10", "11"):
+                for arch in arch_dirs:
+                    candidates.append(os.path.join(base, "Windows Kits", kit, "Debuggers", arch, "cdb.exe"))
+    la = os.environ.get("LOCALAPPDATA")
+    if la:
+        candidates.append(os.path.join(la, "Microsoft", "WindowsApps", "cdb.exe"))
+    return candidates
+
+
 def _find_cdb():
     global _CDB_PATH, _CDB_PROBED
     if _CDB_PROBED:
         return _CDB_PATH
     _CDB_PROBED = True
-    candidates = []
-    for base in (os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles")):
-        if base:
-            candidates.append(os.path.join(base, "Windows Kits", "10", "Debuggers", "x64", "cdb.exe"))
-            candidates.append(os.path.join(base, "Windows Kits", "11", "Debuggers", "x64", "cdb.exe"))
-    la = os.environ.get("LOCALAPPDATA")
-    if la:
-        candidates.append(os.path.join(la, "Microsoft", "WindowsApps", "cdb.exe"))
-    for c in candidates:
+    for c in _cdb_candidates():
         if c and os.path.isfile(c):
             _CDB_PATH = c
             return c
