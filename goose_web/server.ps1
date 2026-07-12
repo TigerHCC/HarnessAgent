@@ -118,7 +118,8 @@ $IndexPath = Join-Path $Here 'index.html'
 # ----------------------------------------------------------------------------
 # shared, thread-safe state (one set of seen sessions + per-session lock objects)
 # ----------------------------------------------------------------------------
-$Shared = [hashtable]::Synchronized(@{ seen = @{}; locks = @{}; cfgWriteLock = (New-Object object) })
+$Shared = [hashtable]::Synchronized(@{ seen = @{}; locks = @{}; cfgWriteLock = (New-Object object)
+                                       refreshSignal = (New-Object System.Threading.ManualResetEvent($false)) })
 
 # ----------------------------------------------------------------------------
 # Live MCP tool discovery
@@ -348,7 +349,11 @@ $discoverer = {
         } catch {}
         [System.Threading.Monitor]::Enter($shared.SyncRoot)
         try { $shared.exts = $exts; $shared.tools = $tools } finally { [System.Threading.Monitor]::Exit($shared.SyncRoot) }
-        Start-Sleep -Seconds $refreshSec
+        # Sleep until the interval elapses OR a toggle wakes us, whichever comes
+        # first, so a flipped extension is re-handshaked immediately instead of
+        # waiting out the refresh interval.
+        [void]$shared.refreshSignal.WaitOne([timespan]::FromSeconds($refreshSec))
+        [void]$shared.refreshSignal.Reset()
     }
 }
 
@@ -552,22 +557,24 @@ $worker = {
         catch { $werr = [string]$_ }
         finally { [System.Threading.Monitor]::Exit($S.shared.cfgWriteLock) }
         if ($werr) { Send-Json $ctx @{ error = $werr } 500; return }
-        # immediate snapshot update so the next /api/health reflects it.
-        # Run the MCP handshake OUTSIDE the lock so a slow/hung server can't
-        # stall every /api/health read while we hold SyncRoot.
+        # Update the snapshot in place -- no handshake on the request path, so
+        # enabling an MCP whose backend is down returns immediately instead of
+        # blocking this response for the handshake timeout. Editing the existing
+        # entry (rather than removing and re-appending it) also keeps the card in
+        # its config order in the sidebar. The real tool list is filled in by the
+        # discoverer, which we wake below (parity with Python's async refresh).
+        $shared = $S.shared
+        [System.Threading.Monitor]::Enter($shared.SyncRoot)
         try {
-            $match.enabled = $enabled
-            $d = Discover-Extension $match $S.gooseBin
-            $shared = $S.shared
-            [System.Threading.Monitor]::Enter($shared.SyncRoot)
-            try {
-                $exts  = @($shared.exts  | Where-Object { $_.id -ne $extId })
-                $tools = @($shared.tools | Where-Object { $_.group -ne $extId })
-                $exts += $d.ext
-                foreach ($r in $d.tools) { $tools += $r }
-                $shared.exts = $exts; $shared.tools = $tools
-            } finally { [System.Threading.Monitor]::Exit($shared.SyncRoot) }
-        } catch {}
+            foreach ($x in $shared.exts) {
+                if ($x.id -ne $extId) { continue }
+                $x.enabled = $enabled
+                $x.count   = 0
+                $x.status  = if ($enabled) { 'checking' } else { 'disabled' }
+            }
+            $shared.tools = @($shared.tools | Where-Object { $_.group -ne $extId })
+        } finally { [System.Threading.Monitor]::Exit($shared.SyncRoot) }
+        [void]$shared.refreshSignal.Set()   # discoverer re-handshakes now, off the request path
         Send-Json $ctx @{ ok = $true; id = $extId; enabled = $enabled }
     }
 
