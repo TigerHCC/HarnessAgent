@@ -73,6 +73,14 @@ beyond `mcp`/`psutil`/`pywin32`/`dissect.esedb`), and reached from Goose over `s
 | [`windows_filterstack`](windows_filterstack/) | 8787 | Filesystem minifilters (AV/VPN) + NDIS/Winsock network filters |
 | [`windows_winupdate`](windows_winupdate/) | 8788 | Windows Update history + failure HRESULTs + pending-reboot state |
 
+### DTM Sample/SDK Util MCP (`dtm_sdk/`, 127.0.0.1:8789) — NOT read-only
+
+`dtmsdk` wraps the five DTP sample utilities (65 commands) plus the datatype tables and HowTo. **Unlike
+the twelve diagnostic MCPs above, it is not read-only** — some commands transmit telemetry to Dell or
+change DTP configuration, so every command outside a per-util safe allowlist requires a per-command
+confirmation token. Requires Administrator and a running Dell TechHub service. Paths live in
+`dtm_sdk/config.json` (one-line redeploy via `samples_root`). See [`dtm_sdk/README.md`](dtm_sdk/README.md).
+
 **One-click setup on a new machine** (elevated, idempotent — installs Python deps, registers + starts a
 logon Scheduled Task per server, and registers each extension into goose's `config.yaml`):
 ```powershell

@@ -81,6 +81,8 @@ $MCPS = @(
      desc="Windows filter-stack map (filesystem minifilters + NDIS/Winsock network filters + altitude classification) via local elevated MCP server (127.0.0.1:8787)" }
   @{ name="winupdate";  dir="windows_winupdate";  port=8788; task="Winupdate-MCP";
      desc="Windows Update history + failure HRESULTs + pending-reboot state via local MCP server (127.0.0.1:8788)" }
+  @{ name="dtmsdk";  dir="dtm_sdk";  port=8789; task="DtmSdk-MCP";
+     desc="DTM Sample/SDK utilities (DTP client SDK CLI wrappers: instrumentation/analytics/transmission/DTM/platinum) via local elevated MCP server (127.0.0.1:8789). NOT read-only -- can transmit telemetry + change DTP config; gated by per-command confirmation." }
 )
 
 $mode = if ($Uninstall) { "UNINSTALL" } else { "setup" }

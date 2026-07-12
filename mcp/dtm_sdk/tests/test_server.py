@@ -1,0 +1,79 @@
+# mcp/dtm_sdk/tests/test_server.py
+import time
+import dtm_sdk_mcp_server as srv
+
+
+def _fake_run(*a, **k):
+    return {"ok": True, "exit_code": 0, "command_line": "x", "parsed": {"ran": True},
+            "stdout_raw": "", "stderr": "", "duration_seconds": 0.1, "format": "json", "timed_out": False}
+
+
+def setup_function(_):
+    srv._TOKENS.clear()
+
+
+def _patch(monkeypatch, exe="FAKE.exe"):
+    # _dispatch checks is_admin() before running; the test host may not be elevated, so force it.
+    monkeypatch.setattr(srv, "is_admin", lambda: True)
+    monkeypatch.setattr(srv, "_exe_for", lambda util: exe)
+    monkeypatch.setattr(srv.runner, "run", _fake_run)
+
+
+def test_safe_command_runs_without_token(monkeypatch):
+    _patch(monkeypatch)
+    r = srv._dispatch("instrumentation", "metadata", [], "")
+    assert r["ok"] is True
+    assert r["parsed"]["ran"] is True
+
+
+def test_dangerous_command_requires_confirmation(monkeypatch):
+    _patch(monkeypatch)
+    r = srv._dispatch("transmission", "collect-transmit", ["--datatype-name", "X"], "")
+    assert r["requires_confirmation"] is True
+    assert r["category"] == "egress"
+    assert r["confirm_token"]
+    assert "collect-transmit" in r["command_line"]
+
+
+def test_confirmation_token_executes(monkeypatch):
+    _patch(monkeypatch)
+    prev = srv._dispatch("transmission", "collect-transmit", ["--datatype-name", "X"], "")
+    tok = prev["confirm_token"]
+    r = srv._dispatch("transmission", "collect-transmit", ["--datatype-name", "X"], tok)
+    assert r["ok"] is True
+
+
+def test_token_for_other_command_rejected(monkeypatch):
+    _patch(monkeypatch)
+    prev = srv._dispatch("transmission", "collect-transmit", ["--datatype-name", "X"], "")
+    tok = prev["confirm_token"]
+    # reuse the token for a DIFFERENT command -> must not execute
+    r = srv._dispatch("transmission", "cancel", [], tok)
+    assert r.get("requires_confirmation") is True
+
+
+def test_token_single_use(monkeypatch):
+    _patch(monkeypatch)
+    prev = srv._dispatch("transmission", "collect-transmit", ["--datatype-name", "X"], "")
+    tok = prev["confirm_token"]
+    assert srv._dispatch("transmission", "collect-transmit", ["--datatype-name", "X"], tok)["ok"]
+    second = srv._dispatch("transmission", "collect-transmit", ["--datatype-name", "X"], tok)
+    assert second.get("requires_confirmation") is True  # consumed
+
+
+def test_bad_command_string_rejected(monkeypatch):
+    _patch(monkeypatch)
+    r = srv._dispatch("transmission", "cancel; whoami", [], "")
+    assert "error" in r
+
+
+def test_missing_exe_names_the_key(monkeypatch):
+    _patch(monkeypatch, exe=None)
+    r = srv._dispatch("instrumentation", "metadata", [], "")
+    assert "error" in r and "instrumentation" in r["error"]
+
+
+def test_health_shape(monkeypatch):
+    h = srv.dtm_health()
+    for k in ("is_admin", "dell_techhub", "executables", "datatype_tables", "howto"):
+        assert k in h

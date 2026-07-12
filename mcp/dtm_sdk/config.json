@@ -1,0 +1,25 @@
+{
+  "samples_root": "C:/Users/a9027/source/Agentic/DTM/DTPSamples-4.0.0.9390_x64_Release/Samples",
+  "docs_root": "${repo_root}/docs/dtm_sdk_doc",
+
+  "executables": {
+    "dtmutil":         "${samples_root}/DTMUtil/bin/Release/DTMUtil.exe",
+    "instrumentation": "${samples_root}/DtpInstrumentationUtil.SubAgent/bin/Release/DtpInstrumentationUtil.exe",
+    "analytics":       "${samples_root}/DtpAnalyticsUtil.SubAgent/bin/Release/DtpAnalyticsUtil.exe",
+    "transmission":    "${samples_root}/DtpTransmissionUtil.SubAgent/bin/Release/DtpTransmissionUtil.exe",
+    "platinum":        "${samples_root}/DTMPlatinumUtil.SubAgent/bin/Release/DTMPlatinumUtil.exe"
+  },
+
+  "datatype_tables": {
+    "instrumentation": "${docs_root}/InstrumentationDatatypeTable.csv",
+    "analysis":        "${docs_root}/AnalysisDatatypeTable.csv",
+    "alert":           "${docs_root}/AlertDatatypeTable.csv"
+  },
+  "howto": "${docs_root}/Sample_Utilities_HowTo.md",
+
+  "app_id": null,
+  "app_name": null,
+
+  "timeout_seconds": 120,
+  "timeout_overrides": { "transmission:collect-transmit": 600 }
+}
