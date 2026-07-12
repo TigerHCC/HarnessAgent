@@ -1,4 +1,7 @@
-import os, sys, tempfile, unittest
+import http.client
+import json
+import os, sys, tempfile, threading, unittest
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 _TMP = tempfile.mkdtemp(prefix="gw_toggle_")
@@ -161,6 +164,63 @@ class ToggleEndpoint(unittest.TestCase):
         res = server._toggle_extension("developer", False)  # builtin
         self.assertEqual(res.get("_status"), 403)
         self.assertNotIn("enabled: false", self.cfg.read_text(encoding="utf-8"))  # not written
+
+
+class HttpBoundary(unittest.TestCase):
+    """End-to-end over real HTTP: do_POST -> _handle_toggle. Exercises the route
+    wiring and the 400/403/404/200 status codes the direct-call tests can't reach."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="gw_http_")
+        self.cfg = Path(self.d) / "config.yaml"
+        self.cfg.write_text(_FIXTURE, encoding="utf-8", newline="")
+        os.environ["GOOSE_CONFIG"] = str(self.cfg)
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        self.port = self.httpd.server_address[1]
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        os.environ.pop("GOOSE_CONFIG", None)
+
+    def _post(self, body):
+        raw = body if isinstance(body, str) else json.dumps(body)
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        conn.request("POST", "/api/extensions/toggle", body=raw,
+                     headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        data = resp.read()
+        conn.close()
+        return resp.status, data
+
+    def test_valid_toggle_200_and_writes(self):
+        status, data = self._post({"id": "srum", "enabled": False})
+        self.assertEqual(status, 200)
+        self.assertIn(b'"ok": true', data)
+        self.assertIn("enabled: false", self.cfg.read_text(encoding="utf-8"))
+
+    def test_non_togglable_403_no_write(self):
+        status, _ = self._post({"id": "developer", "enabled": False})
+        self.assertEqual(status, 403)
+        self.assertNotIn("enabled: false", self.cfg.read_text(encoding="utf-8"))
+
+    def test_unknown_404(self):
+        status, _ = self._post({"id": "nope", "enabled": False})
+        self.assertEqual(status, 404)
+
+    def test_bad_json_400(self):
+        status, _ = self._post("{ not valid json")
+        self.assertEqual(status, 400)
+
+    def test_missing_enabled_400(self):
+        status, _ = self._post({"id": "srum"})  # no 'enabled'
+        self.assertEqual(status, 400)
+
+    def test_non_bool_enabled_400(self):
+        status, _ = self._post({"id": "srum", "enabled": "false"})  # string, not bool
+        self.assertEqual(status, 400)
 
 
 if __name__ == "__main__":
