@@ -44,6 +44,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import subprocess
 import threading
 import time
@@ -271,6 +272,86 @@ def _is_togglable(e: dict) -> bool:
         return False
     host = (urlparse(e.get("uri", "")).hostname or "").lower()
     return host in _LOOPBACK_HOSTS
+
+
+def _atomic_write_config(path: Path, content: str) -> None:
+    """Backup-once, read-only-safe, atomic replace of the config file."""
+    bak = path.with_name(path.name + ".bak-webtoggle")
+    if not bak.exists():
+        try:
+            bak.write_bytes(path.read_bytes())
+        except OSError:
+            pass
+    was_ro = path.exists() and not os.access(path, os.W_OK)
+    if was_ro:
+        os.chmod(path, stat.S_IWRITE)
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8", newline="") as f:  # newline="" -> no CRLF translation
+        f.write(content)
+    os.replace(tmp, path)
+    if was_ro:
+        os.chmod(path, stat.S_IREAD)
+
+
+def _set_extension_enabled(ext_id: str, enabled: bool) -> bool:
+    """Flip `enabled:` for one extension in goose's config.yaml.
+
+    Returns True if the file was changed, False if it already had the requested
+    value. Raises KeyError if ext_id is not an extension in the file. Only the
+    single `enabled:` value is rewritten; all other bytes are preserved.
+    """
+    path = _goose_config_path()
+    with open(path, "r", encoding="utf-8", newline="") as f:  # newline="" -> keep \r\n as-is
+        lines = f.read().splitlines(keepends=True)
+    want = "true" if enabled else "false"
+
+    # 1) find the `  <ext_id>:` key line (indent 2) inside the `extensions:` block
+    key_idx = None
+    in_ext = False
+    for i, ln in enumerate(lines):
+        s = ln.strip()
+        if not s or s.startswith("#"):
+            continue
+        indent = len(ln) - len(ln.lstrip(" "))
+        if indent == 0:
+            in_ext = (s == "extensions:")
+            continue
+        if in_ext and indent == 2 and s == f"{ext_id}:":
+            key_idx = i
+            break
+    if key_idx is None:
+        raise KeyError(f"extension {ext_id!r} not found in {path}")
+
+    # 2) block body = key_idx+1 .. first later non-blank/comment line with indent <= 2
+    block_end = len(lines)
+    for j in range(key_idx + 1, len(lines)):
+        s = lines[j].strip()
+        if not s or s.startswith("#"):
+            continue
+        if (len(lines[j]) - len(lines[j].lstrip(" "))) <= 2:
+            block_end = j
+            break
+
+    # 3) find an existing enabled: line inside the block
+    enabled_idx = None
+    for j in range(key_idx + 1, block_end):
+        if lines[j].strip().startswith("enabled:"):
+            enabled_idx = j
+            break
+
+    newline = "\r\n" if lines[key_idx].endswith("\r\n") else "\n"
+    if enabled_idx is not None:
+        cur = lines[enabled_idx].split(":", 1)[1].strip().lower()
+        if cur == want:
+            return False  # idempotent no-op
+        indent = len(lines[enabled_idx]) - len(lines[enabled_idx].lstrip(" "))
+        lines[enabled_idx] = " " * indent + f"enabled: {want}" + newline
+    else:
+        key_indent = len(lines[key_idx]) - len(lines[key_idx].lstrip(" "))
+        lines.insert(key_idx + 1, " " * (key_indent + 2) + f"enabled: {want}" + newline)
+
+    _atomic_write_config(path, "".join(lines))
+    return True
 
 
 def _short_desc(desc: str) -> str:
