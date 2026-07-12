@@ -1000,6 +1000,7 @@ Update the fallback-group call (~line 560) to pass the two extra args:
 After the `promptToken` function (~line 568), add:
 ```javascript
 async function postToggle(id,enabled,card,cb){
+  if(cb)cb.disabled=true;                               // block double-clicks while the POST is in flight
   if(card)card.classList.toggle("ext-off",!enabled);   // optimistic
   const headers={"Content-Type":"application/json"};if(TOKEN)headers["X-Goose-Token"]=TOKEN;
   try{
@@ -1011,6 +1012,8 @@ async function postToggle(id,enabled,card,cb){
     if(cb)cb.checked=!enabled;                          // revert switch
     if(card)card.classList.toggle("ext-off",enabled);   // revert style
     alert("toggle failed: "+(err.message||err));
+  }finally{
+    if(cb)cb.disabled=false;                            // re-enable (harmless if the node was replaced by a re-render)
   }
 }
 ```
