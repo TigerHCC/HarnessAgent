@@ -118,7 +118,7 @@ $IndexPath = Join-Path $Here 'index.html'
 # ----------------------------------------------------------------------------
 # shared, thread-safe state (one set of seen sessions + per-session lock objects)
 # ----------------------------------------------------------------------------
-$Shared = [hashtable]::Synchronized(@{ seen = @{}; locks = @{} })
+$Shared = [hashtable]::Synchronized(@{ seen = @{}; locks = @{}; cfgWriteLock = (New-Object object) })
 
 # ----------------------------------------------------------------------------
 # Live MCP tool discovery
@@ -283,6 +283,11 @@ function Get-McpStdioTools($exe, $argList) {
 # Discover one extension -> @{ ext = <health entry>; tools = <flat rows> }.
 function Discover-Extension($e, $gooseBin) {
     $detail = ''; $status = 'offline'; $etools = @()
+    $togglable = Test-Togglable $e
+    if (-not $e.enabled) {
+        if ($e.uri) { try { $u = [System.Uri]$e.uri; $detail = "$($u.Host):$($u.Port)" } catch {} }
+        return @{ ext = @{ id = $e.id; name = $e.name; transport = $e.type; status = 'disabled'; count = 0; detail = $detail; enabled = $false; togglable = $togglable }; tools = @() }
+    }
     if ($e.type -eq 'builtin') {
         if ($e.id -eq 'developer') {            # not handshakeable -> static
             $status = 'builtin'; $etools = @(Get-DeveloperTools)
@@ -299,9 +304,15 @@ function Discover-Extension($e, $gooseBin) {
     }
     $rows = @()
     foreach ($t in $etools) { $rows += @{ group = $e.id; name = $t.name; desc = (Short-Desc $t.description) } }
-    return @{ ext = @{ id = $e.id; name = $e.name; transport = $e.type; status = $status; count = @($etools).Count; detail = $detail }; tools = $rows }
+    return @{ ext = @{ id = $e.id; name = $e.name; transport = $e.type; status = $status; count = @($etools).Count; detail = $detail; enabled = $true; togglable = $togglable }; tools = $rows }
 }
 '@
+
+# Fold in the per-MCP toggle helpers so both the main scope (seed) and the
+# worker/discoverer runspaces (which Invoke-Expression this text) get them.
+$ToggleFns = ''
+try { $ToggleFns = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $Here 'mcp_toggle.ps1') } catch { Write-Warning "[goose_web] could not load mcp_toggle.ps1: $_" }
+$DiscoveryFns = $DiscoveryFns + "`n" + $ToggleFns
 
 # Seed the snapshot synchronously (cheap config parse) so /api/health is never
 # empty; the daemon below replaces it with real tool counts within seconds.
@@ -309,11 +320,12 @@ function Discover-Extension($e, $gooseBin) {
 $seedExts = @()
 try {
     foreach ($e in (Parse-GooseExtensions $GooseConfigPath)) {
-        if (-not $e.enabled) { continue }
+        $togglable = Test-Togglable $e
+        if (-not $e.enabled -and -not $togglable) { continue }
         $detail = ''
         if ($e.uri) { try { $u = [System.Uri]$e.uri; $detail = "$($u.Host):$($u.Port)" } catch {} }
-        $status = if ($e.type -eq 'builtin' -and $e.id -eq 'developer') { 'builtin' } else { 'checking' }
-        $seedExts += @{ id = $e.id; name = $e.name; transport = $e.type; status = $status; count = 0; detail = $detail }
+        $status = if (-not $e.enabled) { 'disabled' } elseif ($e.type -eq 'builtin' -and $e.id -eq 'developer') { 'builtin' } else { 'checking' }
+        $seedExts += @{ id = $e.id; name = $e.name; transport = $e.type; status = $status; count = 0; detail = $detail; enabled = [bool]$e.enabled; togglable = $togglable }
     }
 } catch {}
 [System.Threading.Monitor]::Enter($Shared.SyncRoot)
@@ -328,7 +340,7 @@ $discoverer = {
         $exts = @(); $tools = @()
         try {
             foreach ($e in (Parse-GooseExtensions $configPath)) {
-                if (-not $e.enabled) { continue }
+                if (-not $e.enabled -and -not (Test-Togglable $e)) { continue }
                 $d = Discover-Extension $e $gooseBin
                 $exts += $d.ext
                 foreach ($r in $d.tools) { $tools += $r }
@@ -397,6 +409,7 @@ $S = @{
     timeoutSec = $TimeoutSec; token = $Token; workspace = $Workspace; gooseVer = $GooseVersion
     shared = $Shared; reAnsi = $reAnsi; reMascot = $reMascot; reRule = $reRule; reTool = $reTool
     uploadsSubdir = $UploadsSubdir; maxUploadBytes = $MaxUploadBytes; maxUploadMb = $MaxUploadMb
+    gooseConfig = $GooseConfigPath; discoveryFns = $DiscoveryFns
 }
 
 # ----------------------------------------------------------------------------
@@ -407,6 +420,8 @@ $worker = {
     param($listener, $S)
 
     $UTF8 = New-Object System.Text.UTF8Encoding($false)
+
+    Invoke-Expression $S.discoveryFns   # Parse-GooseExtensions / Discover-Extension / Test-Togglable / Set-ExtensionEnabled
 
     function Test-Url($url, $timeoutSec = 4) {
         try {
@@ -512,6 +527,46 @@ $worker = {
             if ($dest -and (Test-Path -LiteralPath $dest)) { try { Remove-Item -LiteralPath $dest -Force } catch {} }
             Send-Json $ctx @{ error = ([string]$_) } 400
         }
+    }
+
+    function Handle-Toggle($ctx, $S) {
+        if ($S.token) {
+            $sup = $ctx.Request.Headers['X-Goose-Token']; if (-not $sup) { $sup = $ctx.Request.QueryString['token'] }
+            if ($sup -ne $S.token) { Send-Json $ctx @{ error = 'unauthorized' } 401; return }
+        }
+        $reader = New-Object System.IO.StreamReader($ctx.Request.InputStream, [System.Text.Encoding]::UTF8)
+        $bodyText = $reader.ReadToEnd(); $reader.Close()
+        $req = $null; try { if ($bodyText.Trim()) { $req = $bodyText | ConvertFrom-Json } } catch {}
+        if ($null -eq $req) { Send-Json $ctx @{ error = 'bad json' } 400; return }
+        $extId = if ($req.id) { [string]$req.id } else { '' }
+        if (-not $extId -or ($req.enabled -isnot [bool])) { Send-Json $ctx @{ error = 'id (str) and enabled (bool) required' } 400; return }
+        $enabled = [bool]$req.enabled
+        $match = $null
+        foreach ($e in (Parse-GooseExtensions $S.gooseConfig)) { if ($e.id -eq $extId) { $match = $e; break } }
+        if ($null -eq $match) { Send-Json $ctx @{ error = 'unknown extension' } 404; return }
+        if (-not (Test-Togglable $match)) { Send-Json $ctx @{ error = 'extension not togglable' } 403; return }
+        # serialize config writes across worker runspaces (parity with Python _config_write_lock)
+        $werr = $null
+        [System.Threading.Monitor]::Enter($S.shared.cfgWriteLock)
+        try { [void](Set-ExtensionEnabled $S.gooseConfig $extId $enabled) }
+        catch { $werr = [string]$_ }
+        finally { [System.Threading.Monitor]::Exit($S.shared.cfgWriteLock) }
+        if ($werr) { Send-Json $ctx @{ error = $werr } 500; return }
+        # immediate snapshot update so the next /api/health reflects it
+        try {
+            $shared = $S.shared
+            [System.Threading.Monitor]::Enter($shared.SyncRoot)
+            try {
+                $exts  = @($shared.exts  | Where-Object { $_.id -ne $extId })
+                $tools = @($shared.tools | Where-Object { $_.group -ne $extId })
+                $match.enabled = $enabled
+                $d = Discover-Extension $match $S.gooseBin
+                $exts += $d.ext
+                foreach ($r in $d.tools) { $tools += $r }
+                $shared.exts = $exts; $shared.tools = $tools
+            } finally { [System.Threading.Monitor]::Exit($shared.SyncRoot) }
+        } catch {}
+        Send-Json $ctx @{ ok = $true; id = $extId; enabled = $enabled }
     }
 
     function Build-Health($S) {
@@ -718,6 +773,8 @@ $worker = {
                 $streamed = $true; Handle-Chat $ctx $S
             } elseif ($req.HttpMethod -eq 'POST' -and $path -eq '/api/upload') {
                 Handle-Upload $ctx $S
+            } elseif ($req.HttpMethod -eq 'POST' -and $path -eq '/api/extensions/toggle') {
+                Handle-Toggle $ctx $S
             } else {
                 Send-Json $ctx @{ error = 'not found' } 404
             }
