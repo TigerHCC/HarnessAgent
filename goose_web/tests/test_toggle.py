@@ -12,6 +12,7 @@ class Togglable(unittest.TestCase):
     def test_loopback_streamable_http_is_togglable(self):
         self.assertTrue(server._is_togglable({"type": "streamable_http", "uri": "http://127.0.0.1:8777/mcp"}))
         self.assertTrue(server._is_togglable({"type": "streamable_http", "uri": "http://localhost:8788/mcp"}))
+        self.assertTrue(server._is_togglable({"type": "streamable_http", "uri": "http://[::1]:8777/mcp"}))
 
     def test_remote_and_builtin_not_togglable(self):
         self.assertFalse(server._is_togglable({"type": "streamable_http", "uri": "http://192.168.86.44:8765/mcp"}))

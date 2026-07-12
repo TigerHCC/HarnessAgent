@@ -7,8 +7,18 @@ function Test-Togglable($e) {
     # True iff a loopback streamable_http MCP (the windows_* diagnostic suite).
     if ($e.type -ne 'streamable_http') { return $false }
     if (-not $e.uri) { return $false }
-    try { $h = ([System.Uri]$e.uri).Host.ToLower() } catch { return $false }
-    return ($h -eq '127.0.0.1' -or $h -eq 'localhost' -or $h -eq '::1')
+    try {
+        $u = [System.Uri]$e.uri
+        $h = $u.Host.ToLower().TrimStart('[').TrimEnd(']')
+        # Try IP address comparison first (handles IPv6 canonical forms)
+        try {
+            $addr = [System.Net.IPAddress]::Parse($h)
+            return [System.Net.IPAddress]::IsLoopback($addr)
+        } catch {
+            # Not an IP, check as hostname
+            return ($h -eq 'localhost')
+        }
+    } catch { return $false }
 }
 
 function Set-ExtensionEnabled($configPath, $extId, [bool]$enabled) {
