@@ -258,6 +258,21 @@ def _host_port(uri: str) -> str:
         return ""
 
 
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _is_togglable(e: dict) -> bool:
+    """True iff a loopback streamable_http MCP (the windows_* diagnostic suite).
+
+    The 12 local diagnostic servers are all streamable_http on 127.0.0.1; dtm is
+    streamable_http but remote, and developer/memory/computercontroller are builtin.
+    """
+    if e.get("type") != "streamable_http":
+        return False
+    host = (urlparse(e.get("uri", "")).hostname or "").lower()
+    return host in _LOOPBACK_HOSTS
+
+
 def _short_desc(desc: str) -> str:
     """Trim an MCP tool description to its first sentence or ~80 chars."""
     s = re.sub(r"\s+", " ", (desc or "")).strip()
