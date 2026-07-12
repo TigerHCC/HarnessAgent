@@ -538,7 +538,7 @@ $worker = {
         $bodyText = $reader.ReadToEnd(); $reader.Close()
         $req = $null; try { if ($bodyText.Trim()) { $req = $bodyText | ConvertFrom-Json } } catch {}
         if ($null -eq $req) { Send-Json $ctx @{ error = 'bad json' } 400; return }
-        $extId = if ($req.id) { [string]$req.id } else { '' }
+        $extId = if ($req.id) { ([string]$req.id).Trim() } else { '' }
         if (-not $extId -or ($req.enabled -isnot [bool])) { Send-Json $ctx @{ error = 'id (str) and enabled (bool) required' } 400; return }
         $enabled = [bool]$req.enabled
         $match = $null
@@ -552,15 +552,17 @@ $worker = {
         catch { $werr = [string]$_ }
         finally { [System.Threading.Monitor]::Exit($S.shared.cfgWriteLock) }
         if ($werr) { Send-Json $ctx @{ error = $werr } 500; return }
-        # immediate snapshot update so the next /api/health reflects it
+        # immediate snapshot update so the next /api/health reflects it.
+        # Run the MCP handshake OUTSIDE the lock so a slow/hung server can't
+        # stall every /api/health read while we hold SyncRoot.
         try {
+            $match.enabled = $enabled
+            $d = Discover-Extension $match $S.gooseBin
             $shared = $S.shared
             [System.Threading.Monitor]::Enter($shared.SyncRoot)
             try {
                 $exts  = @($shared.exts  | Where-Object { $_.id -ne $extId })
                 $tools = @($shared.tools | Where-Object { $_.group -ne $extId })
-                $match.enabled = $enabled
-                $d = Discover-Extension $match $S.gooseBin
                 $exts += $d.ext
                 foreach ($r in $d.tools) { $tools += $r }
                 $shared.exts = $exts; $shared.tools = $tools
