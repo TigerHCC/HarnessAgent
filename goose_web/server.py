@@ -564,12 +564,16 @@ def _build_snapshot(handshake: bool) -> tuple[list[dict], list[dict]]:
     exts_meta: list[dict] = []
     tools: list[dict] = []
     for e in parsed:
-        if not e.get("enabled"):
-            continue
+        enabled = bool(e.get("enabled"))
+        togglable = _is_togglable(e)
+        if not enabled and not togglable:
+            continue  # hide disabled non-togglable (unchanged behavior)
         typ = e.get("type", "")
         ext_id = e.get("id", "")
         name = e.get("name") or ext_id
-        if (typ == "builtin" and ext_id == "developer") or handshake:
+        if not enabled:
+            status, detail, discovered = "disabled", _host_port(e.get("uri", "")), []
+        elif (typ == "builtin" and ext_id == "developer") or handshake:
             status, detail, discovered = _discover_extension(e)
         else:  # seed pass: don't block startup on stdio/http/builtin handshakes
             status = "checking"
@@ -586,6 +590,7 @@ def _build_snapshot(handshake: bool) -> tuple[list[dict], list[dict]]:
         exts_meta.append({
             "id": ext_id, "name": name, "transport": typ,
             "status": status, "count": cnt, "detail": detail,
+            "enabled": enabled, "togglable": togglable,
         })
     return exts_meta, tools
 

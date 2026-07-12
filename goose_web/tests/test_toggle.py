@@ -104,5 +104,36 @@ class Writer(unittest.TestCase):
             os.chmod(self.cfg, _stat.S_IWRITE)  # let tempdir cleanup remove it
 
 
+class Snapshot(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="gw_snap_")
+        self.cfg = Path(self.d) / "config.yaml"
+        # srum disabled+togglable (should show as 'disabled'); eventlog enabled
+        txt = _FIXTURE.replace(
+            "  srum:\n    type: streamable_http\n    enabled: true\n",
+            "  srum:\n    type: streamable_http\n    enabled: false\n")
+        self.cfg.write_text(txt, encoding="utf-8", newline="")
+        os.environ["GOOSE_CONFIG"] = str(self.cfg)
+
+    def tearDown(self):
+        os.environ.pop("GOOSE_CONFIG", None)
+
+    def test_disabled_togglable_appears_disabled(self):
+        exts, _tools = server._build_snapshot(handshake=False)
+        by_id = {e["id"]: e for e in exts}
+        self.assertIn("srum", by_id)
+        self.assertEqual(by_id["srum"]["status"], "disabled")
+        self.assertFalse(by_id["srum"]["enabled"])
+        self.assertTrue(by_id["srum"]["togglable"])
+        self.assertEqual(by_id["srum"]["count"], 0)
+
+    def test_enabled_carries_flags(self):
+        exts, _ = server._build_snapshot(handshake=False)
+        by_id = {e["id"]: e for e in exts}
+        self.assertTrue(by_id["eventlog"]["enabled"])
+        self.assertTrue(by_id["eventlog"]["togglable"])
+        self.assertFalse(by_id["developer"]["togglable"])
+
+
 if __name__ == "__main__":
     unittest.main()
