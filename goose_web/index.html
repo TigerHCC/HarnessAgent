@@ -97,6 +97,14 @@
   .extn-meta a{color:var(--accent);flex:0 0 auto;text-decoration:none}
   .extn-tools{border-top:1px solid var(--line);padding:3px 0}
   .extn-empty{padding:9px 14px 9px 28px;font-size:11.5px;color:var(--faint);font-style:italic}
+  .extn.ext-off{opacity:.5}
+  .dot.off{background:#9993}
+  .extn-sw{position:relative;width:34px;height:18px;flex:0 0 auto;margin-left:8px}
+  .extn-sw input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;z-index:1}
+  .extn-sw .sl{position:absolute;inset:0;border-radius:999px;background:#8884;transition:.15s}
+  .extn-sw .sl::before{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:.15s}
+  .extn-sw input:checked+.sl{background:var(--accent)}
+  .extn-sw input:checked+.sl::before{transform:translateX(16px)}
   /* one tool = one callable function: NAME (mono, accent) over its description */
   .tl{padding:8px 12px 8px 28px;position:relative}
   .tl:hover{background:#ffffff05}
@@ -521,10 +529,11 @@ async function loadHealth(){
     if(tp==="stdio")return "MCP · stdio";
     return tp?("MCP · "+tp):"MCP";
   }
-  function renderExt(id,name,transport,status,detail,myTools){
+  function renderExt(id,name,transport,status,detail,myTools,enabled,togglable){
     const card=el("div","extn");
+    if(togglable && enabled===false)card.classList.add("ext-off");
     if(localStorage.getItem("haCol:"+id)==="1")card.classList.add("collapsed");
-    const st=status==="ok"?"up":(status==="error"||status==="down"?"down":"checking");
+    const st=status==="ok"?"up":(status==="disabled"?"off":(status==="error"||status==="down"?"down":"checking"));
     const cnt=myTools.length?(myTools.length+(myTools.length>1?" tools":" tool")):(status==="checking"?"…":"—");
     const httpUrl=(transport==="streamable_http"&&detail)?("http://"+String(detail).replace(/^https?:\/\//,"")):null;
     const head=el("div","extn-head");
@@ -544,20 +553,30 @@ async function loadHealth(){
         body.appendChild(d);
       });
     }else{
-      const e=el("div","extn-empty");e.textContent=status==="checking"?"discovering tools…":"no tools exposed";body.appendChild(e);
+      const e=el("div","extn-empty");e.textContent=status==="disabled"?"disabled":(status==="checking"?"discovering tools…":"no tools exposed");body.appendChild(e);
+    }
+    if(togglable){
+      const top=head.querySelector(".extn-top");
+      const sw=el("label","extn-sw");
+      sw.title="enable / disable this MCP for the agent (applies to your next message)";
+      sw.innerHTML='<input type="checkbox"'+(enabled?" checked":"")+'><span class="sl"></span>';
+      const cb=sw.querySelector("input");
+      sw.onclick=e=>e.stopPropagation();          // clicking the switch must not collapse the card
+      cb.onchange=()=>postToggle(id,cb.checked,card,cb);
+      top.appendChild(sw);
     }
     card.appendChild(body);tw.appendChild(card);
   }
   exts.forEach(x=>{
     if(x.transport==="platform")return;               // goose internal platform extensions — not user tools
     const myTools=tools.filter(t=>t.group===x.id);
-    if(myTools.length===0 && x.status!=="checking")return;
+    if(myTools.length===0 && x.status!=="checking" && !x.togglable)return;
     shown.add(x.id);
-    renderExt(x.id,x.name,x.transport,x.status,x.detail,myTools);
+    renderExt(x.id,x.name,x.transport,x.status,x.detail,myTools,x.enabled,x.togglable);
   });
   // tool groups with no matching extension entry (fallback)
   [...new Set(tools.filter(t=>!shown.has(t.group)).map(t=>t.group))].forEach(g=>{
-    renderExt(g,g,"",null,null,tools.filter(t=>t.group===g));
+    renderExt(g,g,"",null,null,tools.filter(t=>t.group===g),true,false);
   });
 
   if(HEALTH.token_required && !TOKEN)promptToken();
@@ -565,6 +584,20 @@ async function loadHealth(){
 function promptToken(){
   const v=prompt("This agent requires an access token:","");
   if(v){TOKEN=v.trim();localStorage.setItem("haToken",TOKEN);}
+}
+async function postToggle(id,enabled,card,cb){
+  if(card)card.classList.toggle("ext-off",!enabled);   // optimistic
+  const headers={"Content-Type":"application/json"};if(TOKEN)headers["X-Goose-Token"]=TOKEN;
+  try{
+    const r=await fetch("/api/extensions/toggle",{method:"POST",headers,body:JSON.stringify({id,enabled})});
+    if(r.status===401){TOKEN="";localStorage.removeItem("haToken");promptToken();throw new Error("token required");}
+    if(!r.ok){let j={};try{j=await r.json();}catch(_){}throw new Error(j.error||("error "+r.status));}
+    setTimeout(loadHealth,1200);                        // reconcile with the refreshed snapshot
+  }catch(err){
+    if(cb)cb.checked=!enabled;                          // revert switch
+    if(card)card.classList.toggle("ext-off",enabled);   // revert style
+    alert("toggle failed: "+(err.message||err));
+  }
 }
 
 /* ---------------- ui plumbing ---------------- */
