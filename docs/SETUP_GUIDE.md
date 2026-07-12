@@ -1,6 +1,8 @@
 # HarnessAgent — Authoritative Setup Guide
 
-HarnessAgent wires the [Goose](https://github.com/aaif-goose/goose) CLI/agent to a local, self-hosted model stack and a set of MCP knowledge/telemetry servers. The **GB10** box (Linux/aarch64, `192.168.86.44`) is simultaneously the model server (vLLM + Ollama) and the host for the Linux MCP servers (DTM, PK). Two MCP servers (**SRUM**, **Event Log**) are **Windows-only** because they read live Windows data sources. Goose and its browser front end **goose_web** can run on either box and always point their model provider at the GB10. Telemetry is forced off everywhere — prompts and responses never leave the local provider.
+HarnessAgent wires the [Goose](https://github.com/aaif-goose/goose) CLI/agent to a local, self-hosted model stack and a set of MCP knowledge/telemetry servers. The **GB10** box (Linux/aarch64, `192.168.86.44`) is simultaneously the model server (vLLM + Ollama) and the host for the Linux MCP servers (DTM, PK). A suite of **twelve Windows-only diagnostic MCP servers** (`8777`–`8788`) reads live Windows data sources and has no Linux equivalent. Goose and its browser front end **goose_web** can run on either box and always point their model provider at the GB10. Telemetry is forced off everywhere — prompts and responses never leave the local provider.
+
+> **In a hurry?** The repo [`README.md`](../README.md) has the short version: `setup_goose.ps1` then `setup_mcp_servers.ps1` and you're done. This guide is the long-form reference — it explains the GB10/Linux side (vLLM, Ollama, DTM, PK) that the one-click installers don't cover.
 
 ---
 
@@ -27,11 +29,13 @@ HarnessAgent wires the [Goose](https://github.com/aaif-goose/goose) CLI/agent to
         ┌───────────────────┴──────────────┐        ┌─────────────┴─────────────────────────┐
         │  GOOSE (CLI) — runs on EITHER box │        │  WINDOWS client (Windows-only MCP)     │
         │  ~/.config/goose/config.yaml (Lx) │        │  ┌──────────────────────────────────┐  │
-        │  %APPDATA%\Block\goose\… (Win)    │        │  │ SRUM MCP   127.0.0.1:8777/mcp    │  │
-        │                                   │        │  │  (ELEVATED — reads SRUDB.dat)    │  │
-        │  goose_web  :8799  (HTTP bridge)  │        │  │ EventLog MCP 127.0.0.1:8778/mcp  │  │
-        │  GET / · /api/health · /api/chat  │        │  │  (ELEVATED — reads Security log) │  │
-        └───────────────────────────────────┘        │  └──────────────────────────────────┘  │
+        │  %APPDATA%\Block\goose\… (Win)    │        │  │ Diagnostic MCP suite — 12 servers │  │
+        │  (runs UNELEVATED)                │        │  │ 127.0.0.1:8777–8788  /mcp         │  │
+        │                                   │        │  │ srum eventlog crash exec drift    │  │
+        │  goose_web  :8799  (HTTP bridge)  │        │  │ netconn perfmon disk procinspect  │  │
+        │  GET / · /api/health · /api/chat  │        │  │ memstate filterstack winupdate    │  │
+        └───────────────────────────────────┘        │  │ (started ELEVATED at logon)       │  │
+                                                      │  └──────────────────────────────────┘  │
                                                       │  goose connects over loopback HTTP     │
                                                       └────────────────────────────────────────┘
 ```
@@ -43,11 +47,12 @@ HarnessAgent wires the [Goose](https://github.com/aaif-goose/goose) CLI/agent to
 | Ollama API | GB10 / Linux | `http://192.168.86.44:11434` | **11434** |
 | DTM mcp-proxy | GB10 / Linux | `http://127.0.0.1:8765/mcp` (`/sse` legacy) | **8765** |
 | PK mcp-proxy | GB10 / Linux | `http://127.0.0.1:8766/mcp` (`/sse` legacy) | **8766** |
-| SRUM MCP | **Windows only** | `http://127.0.0.1:8777/mcp` (loopback) | **8777** |
-| Event Log MCP | **Windows only** | `http://127.0.0.1:8778/mcp` (loopback) | **8778** |
+| Windows diagnostic MCP suite (12) | **Windows only** | `http://127.0.0.1:8777…8788/mcp` (loopback) | **8777–8788** |
 | goose_web UI | Either | `http://0.0.0.0:8799` | **8799** |
 
-> SRUM and Event Log are **Windows-only** — they read live Windows data (`SRUDB.dat`, the Windows Event Log) and have no Linux equivalent (their `linux_steps` are empty by design). Everything else is GB10/Linux, except the Goose CLI and goose_web which run on either box and connect to the GB10 model server.
+The 12 diagnostic servers, in port order: `srum` 8777 · `eventlog` 8778 · `crash` 8779 · `exec` 8780 · `drift` 8781 · `netconn` 8782 · `perfmon` 8783 · `disk` 8784 · `procinspect` 8785 · `memstate` 8786 · `filterstack` 8787 · `winupdate` 8788.
+
+> The diagnostic suite is **Windows-only** — it reads live Windows data (`SRUDB.dat`, the Event Log, WER dumps, Prefetch, the USN journal, kernel pool tags, the minifilter stack…) and has no Linux equivalent. Everything else is GB10/Linux, except the Goose CLI and goose_web which run on either box and connect to the GB10 model server.
 
 ---
 
@@ -61,10 +66,10 @@ HarnessAgent wires the [Goose](https://github.com/aaif-goose/goose) CLI/agent to
 - Ollama binary at `/usr/local/bin/ollama` running as a systemd service on `:11434`.
 - DTM/PK MCP trees on this GB10 box (the live `dtm-mcp-proxy`/`pk-mcp-proxy` systemd units and the `qb10_*_mcp.sh` stdio launchers point here): DTM agent at `/home/nvidia/Downloads/GB10-workspace/dtm-agent` (project `venv/`, `DTMKnowledge/` data dir, `config.yaml`) and PK at `/home/nvidia/Downloads/GB10-workspace/pk-mcp` (project `venv/`, `kb/` data dir, `kb_query.py`, `config.yaml`). Each `venv/` has chromadb, requests, pyyaml; Python 3.10+ (see each tree's `README.md`/`SETUP.md`). (`/home/nvidia/Downloads/PersonalKnowledge` is the older/divergent checkout — prefer the GB10-workspace trees for dtm/pk on this box.)
 
-**On Windows (for SRUM + Event Log only)**
-- Windows machine, Python 3.13 in PATH as `python`, Administrator privileges available.
+**On Windows (for the 12-server diagnostic MCP suite)**
+- Windows machine, Python 3.13 in PATH as `python`, Administrator privileges available (needed to *install* the Scheduled Tasks — see Step 5).
 - Goose 1.39 (uses `streamable_http` + `/mcp`; SSE dropped).
-- Per-server `requirements.txt` deps (installed in their steps).
+- Per-server `requirements.txt` deps — `setup_mcp_servers.ps1` installs the union of all 12 for you.
 
 **On any box that runs Goose / goose_web**
 - Same LAN as the GB10 and able to reach `192.168.86.44` (`:8000`, `:11434`).
@@ -214,7 +219,7 @@ curl http://127.0.0.1:8766/mcp                            # only for the streama
 
 ## Step 4 — Install Goose
 
-**This step must be done before the Goose-side wiring in Steps 2, 3, 5, and 6** (the `enable_*_mcp.sh` scripts and the Windows config deploy all edit a Goose config that must already exist). HarnessAgent ships idempotent one-click installers that install the Goose CLI, write a `config.yaml` pointed at the GB10 (`192.168.86.44`, vLLM `:8000`, model `qwen-3.6-chat`), force telemetry off, and run a headless tool-calling smoke test.
+**This step must be done before the Goose-side wiring in Steps 2, 3, and 5** (the `enable_*_mcp.sh` scripts and `setup_mcp_servers.ps1` all edit a Goose config that must already exist). HarnessAgent ships idempotent one-click installers that install the Goose CLI, write a `config.yaml` pointed at the GB10 (`192.168.86.44`, vLLM `:8000`, model `qwen-3.6-chat`), force telemetry off, and run a headless tool-calling smoke test.
 
 **On GB10 / any Linux box:**
 ```bash
@@ -254,99 +259,48 @@ Confirm config landed and contains `GOOSE_TELEMETRY_ENABLED: false` (Linux `~/.c
 
 ---
 
-## Step 5 — Enable SRUM MCP (Windows)
+## Step 5 — Enable the Windows diagnostic MCP suite (12 servers)
 
-**Windows only** (`linux_steps` empty by design). An elevated, loopback-only FastMCP server exposing live metrics (`live_snapshot`, `top_processes`) and historical SRUM per-app tools (`srum_app_usage`, `srum_network_usage`, `srum_energy_usage`, `srum_health`) parsed from `C:\Windows\System32\sru\SRUDB.dat`. Goose runs unprivileged and talks to the elevated server over loopback HTTP. **The Goose config deploy in step 6 below requires Step 4 (Install Goose) done first.**
+**Windows only** (`linux_steps` empty by design). Twelve loopback-only FastMCP servers on `8777`–`8788`, each read-only. Goose runs **unprivileged** and talks to them over loopback HTTP. **Requires Step 4 (Install Goose) done first** — the installer registers extensions into a config that must already exist.
 
-**On Windows:**
+**On Windows — one command, in an ELEVATED PowerShell:**
 ```powershell
-cd HarnessAgent\mcp\windows_srum
-python -m pip install -r requirements.txt          # mcp>=1.2, psutil>=5.9, dissect.esedb>=3.0, wmi>=1.5, pytest>=8.0
-# Open PowerShell AS ADMINISTRATOR (required: reads locked SRUDB.dat via esentutl /vss), then:
-.\start_srum_mcp.ps1                                # prints: [*] Starting SRUM MCP on http://127.0.0.1:8777/mcp
-# OR persistent/always-on (run once as Administrator):
-.\install_task.ps1                                  # registers Scheduled Task 'SRUM-MCP' (RunLevel Highest, AtLogOn)
-Start-ScheduledTask -TaskName SRUM-MCP
-# remove later: .\uninstall_task.ps1
+powershell -ExecutionPolicy Bypass -File .\setup_mcp_servers.ps1
 ```
-Wire into Goose — the `srum` extension is predefined in `config\windows_config.yaml`. **Deploy it to the live config Goose reads (requires Step 4):**
+Idempotent. It installs the union of all 12 `requirements.txt` files, registers + starts a `RunLevel Highest` **at-logon** Scheduled Task per server, appends all 12 `streamable_http` extension blocks to `%APPDATA%\Block\goose\config\config.yaml` (backup: `config.yaml.bak-mcpsetup`), and prints a port/task status table.
+
+Flags: `-SkipDeps` · `-SkipTasks` · `-NoStart` · `-SkipConfig` · `-ConfigPath <path>` · **`-Uninstall`** (stop the servers, drop the tasks, strip the 12 extension blocks; backup `config.yaml.bak-mcpuninstall`).
+
+**Why elevated — and what that does *not* mean.** Admin is needed to *register* a `RunLevel Highest` Scheduled Task, and by several servers at *runtime* for specific data sources (SRUM's SYSTEM-locked `SRUDB.dat`, the Security event log, Prefetch/BAM/ShimCache, the USN journal's raw volume handle, `fltmc`). It is **not** needed by Goose, which stays unelevated — a TCP socket has no UAC boundary. Four of the twelve (`netconn`, `perfmon`, `drift`, `winupdate`) need no admin at all, and the rest gate only the affected tools and degrade gracefully. Full table: [`../mcp/README.md`](../mcp/README.md#privileges--what-actually-needs-administrator).
+
+> The trigger is **at logon**, not at boot — a machine that boots but is never logged into starts none of them.
+
+**Per-server alternative** (any of the 12, e.g. `windows_srum`):
 ```powershell
-Copy-Item ..\..\config\windows_config.yaml "$env:APPDATA\Block\goose\config\config.yaml" -Force
-```
-Resulting extension (`streamable_http`):
-```yaml
-  srum:
-    type: streamable_http
-    bundled: false
-    name: srum
-    enabled: true
-    uri: http://127.0.0.1:8777/mcp
-    headers: {}
-    env_keys: []
-    timeout: 120
-    description: Windows SRUM + live system resource usage (CPU/mem/net/power)
+cd mcp\windows_srum
+python -m pip install -r requirements.txt
+.\start_srum_mcp.ps1     # foreground, this session only
+.\install_task.ps1       # OR persist: Scheduled Task 'SRUM-MCP' (elevated, at logon)
+.\uninstall_task.ps1     # remove that one task
 ```
 
-**Port exposed:** `127.0.0.1:8777` (loopback only; the port bind is the single-instance lock).
+**Ports exposed:** `127.0.0.1:8777`–`8788` (loopback only; each port bind doubles as that server's single-instance lock).
 
 **Verify:**
 ```powershell
-# Server console should print: [*] Starting SRUM MCP on http://127.0.0.1:8777/mcp
-# A raw GET http://127.0.0.1:8777/mcp returning HTTP 400 is NORMAL (endpoint is up).
-$env:GOOSE_MODE="auto"; goose run --no-session -t "Call srum_health, then live_snapshot. Report admin status, SRUM tables, and current CPU%/memory%/battery."
-goose run --no-session -t "Use srum_network_usage for the last 48 hours and list the top 5 apps by bytes."
-Get-ScheduledTask -TaskName SRUM-MCP        # if using the scheduled task
+# A raw GET http://127.0.0.1:8777/mcp returning HTTP 400 is NORMAL (the endpoint is up).
+$env:GOOSE_MODE="auto"
+goose run --no-session -t "Call srum_health, then live_snapshot. Report admin status and current CPU%/memory%/battery."
+goose run --no-session -t "Call eventlog_health, then error_summary for the last 72 hours (top 5 system errors)."
+schtasks /query /tn SRUM-MCP        # ...and the other 11 task names
 ```
+(Event Log `level` uses Windows numerics: 1=Critical, 2=Error, 3=Warning, 4=Information.)
+
+**Using them for real diagnosis** — [`DIAGNOSTIC_PLAYBOOK.md`](DIAGNOSTIC_PLAYBOOK.md) maps symptom → tool → exact call → ready-to-paste Goose prompt (written in Traditional Chinese).
 
 ---
 
-## Step 6 — Enable Event Log MCP (Windows)
-
-**Windows only.** An elevated, loopback-only FastMCP server giving 6 read-only Event Log tools (`list_channels`, `query_events`, `error_summary`, `user_activity`, `get_event`, `eventlog_health`) over the modern pywin32 Evt API, serving `http://127.0.0.1:8778/mcp`. Runs elevated so the Security log (`user_activity`) is readable. **The config deploy requires Step 4 done first.**
-
-**On Windows:**
-```powershell
-cd HarnessAgent\mcp\windows_eventlog
-python -m pip install -r requirements.txt          # mcp>=1.2, pywin32>=306, pytest>=8.0
-# Open PowerShell AS ADMINISTRATOR (required for Security log), then:
-.\start_eventlog_mcp.ps1                            # sets PYTHONIOENCODING=utf-8; serves http://127.0.0.1:8778/mcp
-# OR persistent/always-on (run once as Administrator):
-.\install_task.ps1                                  # registers Scheduled Task 'EventLog-MCP' (RunLevel Highest, at logon)
-Start-ScheduledTask -TaskName EventLog-MCP
-# remove later: .\uninstall_task.ps1
-```
-Wire into Goose — the `eventlog` extension is predefined in `config/windows_config.yaml`. **Deploy to the live config (requires Step 4):**
-```powershell
-Copy-Item ..\..\config\windows_config.yaml "$env:APPDATA\Block\goose\config\config.yaml" -Force
-```
-Resulting extension (`streamable_http`):
-```yaml
-  eventlog:
-    type: streamable_http
-    bundled: false
-    name: eventlog
-    enabled: true
-    uri: http://127.0.0.1:8778/mcp
-    headers: {}
-    env_keys: []
-    timeout: 120
-    description: Windows Event Log via local elevated MCP server (127.0.0.1:8778)
-```
-
-**Port exposed:** `8778` (bound to `127.0.0.1` only).
-
-**Verify:**
-```powershell
-# Server console should print: [*] Starting Event Log MCP on http://127.0.0.1:8778/mcp
-$env:GOOSE_MODE="auto"; goose run --no-session -t "Call eventlog_health, then error_summary for the last 72 hours (top 5 system errors)."
-goose run --no-session -t "Use user_activity for the last 24 hours and summarize logons."
-Get-ScheduledTask -TaskName EventLog-MCP    # if using the scheduled task
-```
-(`level` uses Windows numerics: 1=Critical, 2=Error, 3=Warning, 4=Information.)
-
----
-
-## Step 7 — Launch goose_web
+## Step 6 — Launch goose_web
 
 A stdlib-only web front end that bridges HTTP to `goose run` (one subprocess per message, cwd `../workspace`, `--max-turns 50`, `GOOSE_MODE` from the request). Runs on either box, binds `0.0.0.0:8799`. Its `config.json` backend URLs only drive the health panel / displayed provider — Goose's **real** model provider lives in Goose's own config. Telemetry is forced off on every subprocess.
 
@@ -415,7 +369,7 @@ With telemetry on, Goose would POST usage metadata (model, extension/session nam
 2. **Tool-calling parser:** a `chat/completions` call with a tool schema returns `finish_reason: tool_calls` (not `stop` with raw `<function=...>` XML).
 3. **Goose installed:** `goose --version` → 1.39.0; smoke test creates `ok.txt` containing `READY`; config contains `GOOSE_TELEMETRY_ENABLED: false`.
 4. **DTM + PK in Goose (GB10):** `goose info -v` loads cleanly; `grep -cE '^[[:space:]]{2}dtm:' …config.yaml` → 1 and `grep -cE '^  pk:' …config.yaml` → 1; in a session, a DTM query (`What telemetry covers battery health?`) returns, and PK `list_sources` returns the 6 `pk_*` collection counts + `search_kb` retrieves (needs `:8001`). DTM proxy reachable: `curl http://127.0.0.1:8765/mcp`.
-5. **Windows MCP:** `$env:GOOSE_MODE="auto"; goose run --no-session -t "Call srum_health, then live_snapshot…"` reports admin status + CPU/mem/battery; `goose run --no-session -t "Call eventlog_health, then error_summary for the last 72 hours…"` returns top errors. Both servers print their `[*] Starting … on http://127.0.0.1:877x/mcp` banner.
+5. **Windows diagnostic MCP suite:** re-running `setup_mcp_servers.ps1` prints its status table with all 12 rows `port ####:UP  task:Ready`. In a session, `$env:GOOSE_MODE="auto"; goose run --no-session -t "Call srum_health, then live_snapshot…"` reports admin status + CPU/mem/battery, and `"Call eventlog_health, then error_summary for the last 72 hours…"` returns top errors.
 6. **goose_web reachable:** `curl http://192.168.86.44:8799/api/health` → 3/3 backends `ok`; the browser UI at `http://192.168.86.44:8799` answers a chat message.
 
 ---
@@ -434,6 +388,7 @@ With telemetry on, Goose would POST usage metadata (model, extension/session nam
 - **Read-only Goose config + `.bak` recovery (Linux):** Goose can silently rewrite `~/.config/goose/config.yaml`, dropping provider keys + stdio extensions → `error: No provider configured. Run goose configure first.` Clean runs are NOT a safety signal. Mitigation: keep `config.yaml.bak` and `chmod a-w` the live config. Recover: `cp ~/.config/goose/config.yaml.bak ~/.config/goose/config.yaml && chmod a-w ~/.config/goose/config.yaml`. Never hand-edit the live config — use the `enable_*.sh` scripts (unlock → edit → re-lock → refresh `.bak`). To edit: `chmod u+w`, edit, `chmod a-w`.
 - **Windows goose_web LAN bind (urlacl):** HttpListener on `0.0.0.0` needs an elevated shell OR a one-time `netsh http add urlacl url=http://+:8799/ user=%USERNAME%` (run once, elevated). Binding `127.0.0.1` needs neither.
 - **goose_web security:** with `GOOSE_MODE=auto` the agent auto-runs shell/file tools on the host; bound to `0.0.0.0` anyone reaching the port can run commands. On a shared LAN set `GOOSE_WEB_TOKEN` or bind `127.0.0.1` (a loud yellow warning prints on public bind without a token). Each web message spawns a fresh `goose run`, so every DTM query pays cold start — point `dtm` at the warm `:8765` proxy.
-- **Windows MCP elevation:** SRUM (`8777`) and Event Log (`8778`) servers MUST run elevated — SRUM reads the locked `SRUDB.dat` via `esentutl /vss`; Event Log needs the Security log for `user_activity`. The `start_*.ps1` / `install_task.ps1` scripts self-check admin and refuse otherwise. A raw `GET /mcp` returning **HTTP 400 is normal**. SRUM is historical (flushed ~hourly) — use `live_snapshot` for "right now"; per-app energy is often 0 on desktops; live wattage is laptop-only. Port-in-use → the bind is the single-instance lock. Remember the `srum`/`eventlog` extensions must be both in `config/windows_config.yaml` AND copied to `%APPDATA%\Block\goose\config\config.yaml`.
+- **Windows MCP elevation:** the *installer* needs admin (it registers `RunLevel Highest` Scheduled Tasks). At *runtime* only some servers need it, and only for specific data sources — SRUM's `esentutl /vss` copy of the locked `SRUDB.dat`, the Security log (`user_activity`), Prefetch/BAM/ShimCache, the USN journal's raw volume handle, `fltmc`. `netconn`/`perfmon`/`drift`/`winupdate` need none. **Goose itself never needs admin** — loopback HTTP has no UAC boundary. Full table in [`../mcp/README.md`](../mcp/README.md#privileges--what-actually-needs-administrator).
+- **Windows MCP gotchas:** a raw `GET /mcp` returning **HTTP 400 is normal** (the endpoint is up). The Scheduled Tasks trigger **at logon, not at boot**. SRUM is historical (flushed ~hourly) — use `live_snapshot` for "right now"; per-app energy is often 0 on desktops; live wattage is laptop-only. Port-in-use → that bind IS the single-instance lock. The servers have **no auth** and are readable by any local process — read-only, but treat it as a UAC-free window onto admin-level data.
 - **Telemetry:** if `GOOSE_TELEMETRY_ENABLED` is ever set `true`, Goose POSTs metadata to `us.i.posthog.com`. Keep it `false` (configs + installers + every script enforce this); prompts/responses stay local regardless.
 - **Misc:** `OPENAI_API_KEY: sk-local` is a dummy (vLLM ignores it, but Goose requires a value). `goose bench` does not exist in 1.39.0 — related commands are `recipe`, `skills`, `review`. `--enable-chunked-prefill` requires vLLM ≥ 0.6.0 (remove on older releases — see compose header comment).

@@ -14,16 +14,27 @@
     srum 8777, eventlog 8778, crash 8779, exec 8780, drift 8781, netconn 8782, perfmon 8783,
     disk 8784, procinspect 8785, memstate 8786, filterstack 8787, winupdate 8788
 
+  NOTE ON PRIVILEGE: this INSTALLER needs Administrator (registering a RunLevel-Highest Scheduled
+  Task requires it). That is separate from what each SERVER needs at runtime -- most of the 12 have
+  tools that work fine unelevated, and only some hard-require admin for specific data sources. See
+  the privilege table in mcp\README.md. Goose itself always runs unelevated and reaches the servers
+  over loopback HTTP.
+
 .PARAMETER SkipDeps      Skip `pip install` of Python dependencies.
 .PARAMETER SkipTasks     Don't register Scheduled Tasks (just start the servers once, this session).
 .PARAMETER NoStart       Register the tasks but don't start the servers now.
 .PARAMETER SkipConfig    Don't touch goose's config.yaml.
 .PARAMETER ConfigPath    Override goose config path (default %APPDATA%\Block\goose\config\config.yaml).
+.PARAMETER Uninstall     Remove everything this script installs: stop the 12 servers, unregister the
+                         12 Scheduled Tasks, and strip the 12 extension blocks from goose's
+                         config.yaml (backed up first). Leaves pip packages alone.
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File .\setup_mcp_servers.ps1
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File .\setup_mcp_servers.ps1 -SkipConfig -NoStart
+.EXAMPLE
+  powershell -ExecutionPolicy Bypass -File .\setup_mcp_servers.ps1 -Uninstall
 #>
 [CmdletBinding()]
 param(
@@ -31,6 +42,7 @@ param(
   [switch]$SkipTasks,
   [switch]$NoStart,
   [switch]$SkipConfig,
+  [switch]$Uninstall,
   [string]$ConfigPath = (Join-Path $env:APPDATA "Block\goose\config\config.yaml")
 )
 
@@ -71,22 +83,101 @@ $MCPS = @(
      desc="Windows Update history + failure HRESULTs + pending-reboot state via local MCP server (127.0.0.1:8788)" }
 )
 
-Write-Host "=== HarnessAgent MCP servers setup (12 diagnostic MCPs) ===" -ForegroundColor Magenta
+$mode = if ($Uninstall) { "UNINSTALL" } else { "setup" }
+Write-Host "=== HarnessAgent MCP servers $mode (12 diagnostic MCPs) ===" -ForegroundColor Magenta
 
 # --- 0. Prereqs ---
+# Admin is needed to register/unregister a RunLevel-Highest Scheduled Task. It is NOT a statement
+# about what each server needs at runtime -- see the privilege table in mcp\README.md.
 $id = [Security.Principal.WindowsIdentity]::GetCurrent()
 $admin = (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
-if (-not $admin) { Die "Must run ELEVATED (Administrator): the servers read SYSTEM-hive/kernel data and register Scheduled Tasks. Re-open PowerShell as Administrator." }
+if (-not $admin) { Die "Must run ELEVATED (Administrator): registering the Scheduled Tasks requires it. Re-open PowerShell as Administrator." }
 
 $py = (Get-Command python -ErrorAction SilentlyContinue).Source
 if (-not $py) { Die "Python 3 not found on PATH. Install Python 3 (with pip) and re-run." }
 Ok "Elevated + Python: $py ($((& $py --version) -join ' '))"
 
-# --- 1. Python dependencies (union across all MCPs) ---
+# --- Remove one extension's block from config.yaml (returns the new text, or $null if absent) ---
+# Deletes the '  <id>:' key line at indent 2 plus its body (up to the next line with indent <= 2).
+function Remove-ExtensionBlock([string[]]$lines, [string]$extId) {
+  $keyIdx = -1; $inExt = $false
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    $s = $lines[$i].Trim()
+    if ($s -eq '' -or $s.StartsWith('#')) { continue }
+    $indent = $lines[$i].Length - $lines[$i].TrimStart(' ').Length
+    if ($indent -eq 0) { $inExt = ($s -eq 'extensions:'); continue }
+    if ($inExt -and $indent -eq 2 -and $s -eq "${extId}:") { $keyIdx = $i; break }
+  }
+  if ($keyIdx -lt 0) { return $null }
+  $end = $lines.Count
+  for ($j = $keyIdx + 1; $j -lt $lines.Count; $j++) {
+    $s = $lines[$j].Trim()
+    if ($s -eq '' -or $s.StartsWith('#')) { continue }
+    $ind = $lines[$j].Length - $lines[$j].TrimStart(' ').Length
+    if ($ind -le 2) { $end = $j; break }
+  }
+  $keep = New-Object System.Collections.Generic.List[string]
+  for ($k = 0; $k -lt $lines.Count; $k++) { if ($k -lt $keyIdx -or $k -ge $end) { [void]$keep.Add($lines[$k]) } }
+  return ,$keep.ToArray()
+}
+
+# --- UNINSTALL: stop servers, drop tasks, strip config blocks, then exit ---
+if ($Uninstall) {
+  foreach ($m in $MCPS) {
+    # stop whatever holds the port (that bind IS the server's single-instance lock)
+    $conn = Get-NetTCPConnection -State Listen -LocalPort $m.port -ErrorAction SilentlyContinue
+    foreach ($c in $conn) {
+      try { Stop-Process -Id $c.OwningProcess -Force -ErrorAction Stop; Ok "$($m.name): stopped PID $($c.OwningProcess) (port $($m.port))." }
+      catch { Warn "$($m.name): could not stop PID $($c.OwningProcess): $_" }
+    }
+    if (-not $conn) { Info "$($m.name): not running (port $($m.port) free)." }
+
+    $q = schtasks /query /tn $m.task /fo csv 2>$null | Select-Object -Skip 1
+    if ($q) {
+      Unregister-ScheduledTask -TaskName $m.task -Confirm:$false -ErrorAction SilentlyContinue
+      Ok "$($m.name): unregistered Scheduled Task '$($m.task)'."
+    } else { Info "$($m.name): no Scheduled Task '$($m.task)'." }
+  }
+
+  if ($SkipConfig) { Warn "Leaving goose config alone (-SkipConfig)." }
+  elseif (-not (Test-Path $ConfigPath)) { Warn "goose config not found at $ConfigPath -- nothing to strip." }
+  else {
+    Copy-Item $ConfigPath "$ConfigPath.bak-mcpuninstall" -Force
+    $lines = [System.IO.File]::ReadAllLines($ConfigPath)
+    $removed = @()
+    foreach ($m in $MCPS) {
+      $next = Remove-ExtensionBlock $lines $m.name
+      if ($null -ne $next) { $lines = $next; $removed += $m.name }
+    }
+    if ($removed.Count) {
+      [System.IO.File]::WriteAllLines($ConfigPath, $lines, (New-Object System.Text.UTF8Encoding($false)))
+      Ok ("Removed extensions from config: " + ($removed -join ", ") + "  (backup: $ConfigPath.bak-mcpuninstall)")
+      & $py -c "import sys,yaml; yaml.safe_load(open(sys.argv[1],encoding='utf-8')); print('config YAML OK')" $ConfigPath 2>&1 | Out-Host
+    } else { Ok "No managed extensions present in config -- no change." }
+  }
+  Write-Host ""
+  Ok "Uninstall done. Python packages were NOT removed (other things may use them)."
+  Warn "goose_web and Sysmon are separate -- this script did not touch them."
+  exit 0
+}
+
+# --- 1. Python dependencies (union of every mcp\windows_*\requirements.txt) ---
+# Read from the requirements files rather than a hardcoded list, so adding a dep to any one MCP
+# can't silently go uninstalled here.
 if ($SkipDeps) { Warn "Skipping pip install (-SkipDeps)." }
 else {
-  Info "Installing Python dependencies (mcp, pywin32, psutil, dissect.esedb, wmi)..."
-  $deps = @("mcp>=1.2","pywin32>=306","psutil>=5.9","dissect.esedb>=3.0","wmi>=1.5")
+  $deps = @()
+  foreach ($m in $MCPS) {
+    $req = Join-Path (Join-Path $mcpRoot $m.dir) "requirements.txt"
+    if (-not (Test-Path $req)) { Warn "$($m.name): no requirements.txt -- skipping its deps."; continue }
+    foreach ($line in (Get-Content $req)) {
+      $l = $line.Trim()
+      if ($l -and -not $l.StartsWith('#')) { $deps += $l }
+    }
+  }
+  $deps = @($deps | Sort-Object -Unique)
+  if (-not $deps.Count) { Die "No dependencies found in any mcp\windows_*\requirements.txt -- is the checkout complete?" }
+  Info ("Installing Python dependencies (" + ($deps -join ", ") + ")...")
   & $py -m pip install --disable-pip-version-check @deps
   if ($LASTEXITCODE -ne 0) { Die "pip install failed (exit $LASTEXITCODE)." }
   Ok "Dependencies installed."
@@ -95,7 +186,6 @@ else {
 # --- 2. Register + start each MCP ---
 foreach ($m in $MCPS) {
   $dir = Join-Path $mcpRoot $m.dir
-  $server = Join-Path $dir ("{0}_mcp_server.py" -f ($m.dir -replace '^windows_',''))
   # server filename == <name>_mcp_server.py where <name> is the dir minus 'windows_'
   $server = Get-ChildItem $dir -Filter "*_mcp_server.py" -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $server) { Warn "$($m.name): no *_mcp_server.py in $dir -- skipping."; continue }

@@ -30,10 +30,21 @@ Validated on the Windows 11 dev box on 2026-06-28, and re-validated the same day
 - A **Windows diagnostic MCP suite** — 12 local, read-only servers (`mcp/windows_*/`, ports
   8777–8788) giving the harness a full "what's wrong with this box" toolkit: SRUM, Event Log,
   crash/WER, execution evidence, config drift, live network, PDH perf, disk/USN, process
-  inspection, memory attribution, filter stack, and Windows-Update history. One-click install via
-  [`setup_mcp_servers.ps1`](setup_mcp_servers.ps1); see [`mcp/README.md`](mcp/README.md) and the
-  roadmap in [`docs/windows-diagnostic-mcp-candidates.md`](docs/windows-diagnostic-mcp-candidates.md).
+  inspection, memory attribution, filter stack, and Windows-Update history. One-click install (and
+  `-Uninstall`) via [`setup_mcp_servers.ps1`](setup_mcp_servers.ps1); see [`mcp/README.md`](mcp/README.md)
+  — including [which of them actually need Administrator](mcp/README.md#privileges--what-actually-needs-administrator)
+  — and the roadmap in [`docs/windows-diagnostic-mcp-candidates.md`](docs/windows-diagnostic-mcp-candidates.md).
+  goose_web's sidebar can enable/disable each one at runtime, no restart.
 - See [`RUN.md`](RUN.md) for how to launch the harness with DTM support
+
+## Where to read next
+| Doc | For |
+|---|---|
+| **this README** (below) | the short path: two commands, from clone to working |
+| [`mcp/README.md`](mcp/README.md) | the 12 diagnostic MCPs — ports, privileges, install flags |
+| [`docs/DIAGNOSTIC_PLAYBOOK.md`](docs/DIAGNOSTIC_PLAYBOOK.md) | how to actually *use* them: symptom → tool → prompt (Chinese) |
+| [`docs/SETUP_GUIDE.md`](docs/SETUP_GUIDE.md) | long-form reference — the GB10/Linux side (vLLM, Ollama, DTM, PK) the one-click installers don't cover |
+| [`RUN.md`](RUN.md) | launching the harness + goose_web with DTM/PK |
 
 ## Backends (on GB10)
 | Backend | Endpoint | Model | Notes |

@@ -57,7 +57,6 @@ Twelve local, **read-only** Windows diagnostic MCP servers — a full "what's wr
 toolkit. Each is self-contained (`<name>_mcp_server.py` + reader modules, `DESIGN.md`, `README.md`,
 `tests/`, `start_<name>_mcp.ps1`, `install_task.ps1`/`uninstall_task.ps1`), pure-stdlib/ctypes (no pip
 beyond `mcp`/`psutil`/`pywin32`/`dissect.esedb`), and reached from Goose over `streamable_http`.
-Most run **elevated** (they read SYSTEM-hive / kernel data); the launchers self-check admin.
 
 | MCP | Port | What it diagnoses |
 |---|---|---|
@@ -80,9 +79,55 @@ logon Scheduled Task per server, and registers each extension into goose's `conf
 powershell -ExecutionPolicy Bypass -File .\..\setup_goose.ps1          # 1. goose itself + base config
 powershell -ExecutionPolicy Bypass -File .\..\setup_mcp_servers.ps1    # 2. all 12 diagnostic MCPs (Administrator)
 ```
-Each server can also be started standalone (`windows_<name>\start_<name>_mcp.ps1`, elevated) or persisted
-via its `install_task.ps1`. The full extension block set is in [`../config/windows_config.yaml`](../config/windows_config.yaml);
-the candidate roadmap + build status is in [`../docs/windows-diagnostic-mcp-candidates.md`](../docs/windows-diagnostic-mcp-candidates.md).
+`setup_mcp_servers.ps1` flags: `-SkipDeps` (no `pip install`) · `-SkipTasks` (don't register Scheduled
+Tasks) · `-NoStart` (register but don't launch) · `-SkipConfig` (leave `config.yaml` alone) ·
+`-ConfigPath <path>` (non-default goose config) · **`-Uninstall`** (stop the 12 servers, unregister the 12
+Scheduled Tasks, and strip the 12 extension blocks from `config.yaml` — backed up to
+`config.yaml.bak-mcpuninstall` first; pip packages are left alone).
+
+Each server can also be started standalone (`windows_<name>\start_<name>_mcp.ps1`) or persisted/removed
+individually via its own `install_task.ps1` / `uninstall_task.ps1`. The full extension block set is in
+[`../config/windows_config.yaml`](../config/windows_config.yaml); the candidate roadmap + build status is
+in [`../docs/windows-diagnostic-mcp-candidates.md`](../docs/windows-diagnostic-mcp-candidates.md).
+
+### Privileges — what actually needs Administrator
+
+Three separate things, often conflated:
+
+1. **The installer needs admin.** `setup_mcp_servers.ps1` (and each `install_task.ps1`) registers a
+   `RunLevel Highest` Scheduled Task, which requires an elevated shell. This says nothing about runtime.
+2. **The servers are *started* elevated** — the task's trigger is **`-AtLogOn`** (not at boot) running as
+   **your own account** with `RunLevel Highest`, so they come up silently (no UAC prompt) when you log in.
+   A machine that boots but is never logged into runs none of them.
+3. **Goose never needs admin.** It runs unelevated and reaches every server over loopback HTTP
+   (`streamable_http`). A TCP socket has no UAC/UIPI boundary, so an unprivileged client talking to an
+   elevated server is fine — that separation is the whole point of the design.
+
+Not every server actually requires elevation. Each one gates only the *specific* tools whose data source
+demands it, and returns a structured `{"error": ..., "is_admin": false}` (or a partial result) rather than
+failing outright:
+
+| MCP | Needs admin? | Why / what still works unelevated |
+|---|---|---|
+| `srum` | for SRUM history | `SRUDB.dat` is SYSTEM-locked (copied via `esentutl /vss`). `live_snapshot` / `top_processes` work as a normal user. |
+| `eventlog` | for the Security log | `user_activity` reads Security. System/Application queries (`query_events`, `error_summary`) work as a normal user. |
+| `crash` | for kernel dumps | `C:\Windows\Minidump` / `MEMORY.DMP` need admin. WER app-crash tools work as a normal user. |
+| `exec` | for Prefetch/BAM/ShimCache | Those live in `C:\Windows\Prefetch` and the SYSTEM hive. `userassist_list` (HKCU) works as a normal user. |
+| `disk` | for the USN journal | Needs a raw volume handle (`\\.\C:`). `disk_health` (SMART) and `volume_state` work as a normal user. |
+| `filterstack` | for minifilters | `fltmc.exe` requires admin. `network_filters` (NDIS/Winsock) works as a normal user. |
+| `memstate` | mostly no | Pool-tag enumeration works unelevated; only memory-list composition wants `SeProfileSingleProcessPrivilege`. |
+| `procinspect` | no | psutil / Restart Manager / wait-chain all work unelevated; unqueryable threads are reported, not fatal. |
+| `netconn` · `perfmon` · `drift` · `winupdate` | **no** | No admin gate anywhere in their code. |
+
+> **Security note:** the servers bind `127.0.0.1` with **no authentication**. Any process on this box —
+> including unprivileged ones — can call them and read data that would normally require admin. Everything
+> is read-only, so this is information disclosure, not privilege escalation, but it is effectively a
+> UAC-free read-only window onto admin-level data. Fine for a single-user diagnostic box; do not run this
+> suite on a machine with untrusted local users.
+
+**Turning servers on and off at runtime:** goose_web's sidebar has a per-MCP toggle for exactly these 12
+(it flips `enabled:` in `config.yaml`, which the next `goose run` re-reads — no restart). See
+[`../goose_web/README.md`](../goose_web/README.md).
 
 **How to actually use them** — [`../docs/DIAGNOSTIC_PLAYBOOK.md`](../docs/DIAGNOSTIC_PLAYBOOK.md) maps common
 symptoms → which tool → the exact call → a ready-to-paste Goose prompt, plus the baseline/trend method
