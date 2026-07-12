@@ -52,7 +52,7 @@ code read — the loop must reproduce each one before fixing it, and move it to 
   AMD64 → `x64` only, so an x64 box can never pick up a cross-installed arm64 cdb it can't run.
   Behaviour on x64 is byte-identical to before — there's a regression test asserting exactly that.
   Still unverified on real ARM64 hardware (no such box here); the *logic* is tested by monkeypatching
-  `platform.machine()`. → `d9caf04`
+  `platform.machine()`. → `2df5716`
 
   Context: goose ships no Windows ARM64 build (checked: v1.41.0 has only `x86_64-pc-windows-msvc`), so
   it runs x64-emulated there — but the Python MCPs can run native ARM64 (`psutil` and `pywin32` both
