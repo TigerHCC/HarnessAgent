@@ -230,6 +230,10 @@ else {
     foreach ($m in $MCPS) {
       # already present?  (a line like '  <name>:' under extensions)
       if ($cfg -match ("(?m)^\s{2}" + [regex]::Escape($m.name) + "\s*:")) { continue }
+      # YAML-single-quote the description: a plain scalar cannot contain ": " (colon+space) -- it would
+      # be read as a nested mapping. Single-quoting allows colons/semicolons/etc.; embedded single
+      # quotes are escaped by doubling.
+      $descYaml = "'" + ($m.desc -replace "'", "''") + "'"
       $block = @"
 
   $($m.name):
@@ -241,7 +245,7 @@ else {
     headers: {}
     env_keys: []
     timeout: 120
-    description: $($m.desc)
+    description: $descYaml
 "@
       Add-Content -Path $ConfigPath -Value $block -Encoding UTF8
       $added += $m.name
