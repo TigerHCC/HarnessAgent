@@ -115,6 +115,22 @@ Each `/api/health` response now includes an `extensions[]` array
 sidebar shows a per-extension status dot + tool count, and marks unreachable
 servers `offline`. Point discovery at a non-default config with `GOOSE_CONFIG`.
 
+## Enable/disable MCPs from the UI
+
+Each **Windows diagnostic MCP** card (the loopback `streamable_http` servers, ports
+8777–8788) has an on/off switch. Flipping it sets that extension's `enabled:` flag in
+goose's live `config.yaml` and takes effect on your **next message** — no restart. It is
+a config-level switch (whether goose loads the extension); it does **not** start or stop
+the backend MCP server process.
+
+- Only loopback `streamable_http` MCPs are togglable. `developer`/`memory`/
+  `computercontroller` (builtin) and `dtm` (remote) have no switch and are refused
+  server-side.
+- `POST /api/extensions/toggle` `{ "id": "<ext>", "enabled": <bool> }`, token-gated like
+  `/api/chat`.
+- The first edit backs up `config.yaml` to `config.yaml.bak-webtoggle` (once). Writes are
+  atomic and honor a read-only durability guard on the config file.
+
 ## Endpoints
 - `GET /` — the chat page
 - `GET /api/health` — model + backend status + **live-discovered MCP extensions + tool list** (snapshot cache, version cached at startup)
