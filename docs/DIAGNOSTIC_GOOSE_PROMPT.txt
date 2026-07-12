@@ -1,0 +1,15 @@
+
+幫這台 Windows 做一次系統健檢:
+1. handle/記憶體有沒有洩漏(哪個 process/driver)
+2. 哪些第三方 AV/VPN driver 掛在檔案與網路路徑上
+3. 最近有沒有更新失敗或當機
+4. 哪些目錄在狂寫
+用你有的診斷工具查,最後列出可疑項目與對應的 process/driver 
+
+
+Perform a system health check on this Windows machine:
+1.Check for any handle/memory leaks (identify the specific process/driver).
+2.Identify which third-party AV/VPN drivers are hooked into the file and network paths.
+3.Check if there have been any recent update failures or system crashes.
+4.Determine which directories are experiencing excessive write activity.
+Use the diagnostic tools available to you to investigate, and finally list the suspicious items along with their corresponding processes/drivers.
