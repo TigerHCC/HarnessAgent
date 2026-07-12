@@ -602,6 +602,22 @@ def _refresh_discovery(handshake: bool = True) -> None:
         _disc_tools[:] = tools
 
 
+def _toggle_extension(ext_id: str, enabled: bool) -> dict:
+    """Validate + flip one extension's enabled flag; kick a background rediscovery.
+
+    Returns a dict with an internal `_status` HTTP code the caller strips before sending.
+    """
+    parsed = _parse_goose_extensions(_goose_config_path().read_text(encoding="utf-8"))
+    match = next((e for e in parsed if e.get("id") == ext_id), None)
+    if match is None:
+        return {"error": "unknown extension", "_status": 404}
+    if not _is_togglable(match):
+        return {"error": "extension not togglable", "_status": 403}
+    _set_extension_enabled(ext_id, enabled)
+    threading.Thread(target=_refresh_discovery, kwargs={"handshake": True}, daemon=True).start()
+    return {"ok": True, "id": ext_id, "enabled": enabled, "_status": 200}
+
+
 def _discovery_loop() -> None:
     while True:
         try:
@@ -806,7 +822,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
-        if path not in ("/api/chat", "/api/upload"):
+        if path not in ("/api/chat", "/api/upload", "/api/extensions/toggle"):
             self._send_json({"error": "not found"}, 404)
             return
         if not self._auth_ok():
@@ -814,6 +830,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/upload":
             self._handle_upload()
+            return
+        if path == "/api/extensions/toggle":
+            self._handle_toggle()
             return
         # ---- /api/chat ----
         length = int(self.headers.get("Content-Length", "0") or "0")
@@ -867,6 +886,26 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": str(e)}, 400)
             return
         self._send_json({"ok": True, "name": dest.name, "size": written})
+
+    def _handle_toggle(self):
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            req = json.loads(raw or b"{}")
+        except json.JSONDecodeError:
+            self._send_json({"error": "bad json"}, 400)
+            return
+        ext_id = str(req.get("id") or "").strip()
+        enabled = req.get("enabled")
+        if not ext_id or not isinstance(enabled, bool):
+            self._send_json({"error": "id (str) and enabled (bool) required"}, 400)
+            return
+        try:
+            res = _toggle_extension(ext_id, enabled)
+        except Exception as e:  # noqa: BLE001
+            self._send_json({"error": str(e)}, 500)
+            return
+        self._send_json(res, res.pop("_status", 200))
 
     # -- the streaming chat run --
     def _stream_chat(self, session: str, message: str, mode: str):

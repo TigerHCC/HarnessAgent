@@ -135,5 +135,32 @@ class Snapshot(unittest.TestCase):
         self.assertFalse(by_id["developer"]["togglable"])
 
 
+class ToggleEndpoint(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.mkdtemp(prefix="gw_tog_")
+        self.cfg = Path(self.d) / "config.yaml"
+        self.cfg.write_text(_FIXTURE, encoding="utf-8", newline="")
+        os.environ["GOOSE_CONFIG"] = str(self.cfg)
+
+    def tearDown(self):
+        os.environ.pop("GOOSE_CONFIG", None)
+
+    def test_valid_toggle_writes_and_returns_ok(self):
+        res = server._toggle_extension("srum", False)
+        self.assertEqual(res.get("_status"), 200)
+        self.assertTrue(res["ok"])
+        self.assertFalse(res["enabled"])
+        self.assertIn("enabled: false", self.cfg.read_text(encoding="utf-8"))
+
+    def test_unknown_extension_404(self):
+        res = server._toggle_extension("nope", False)
+        self.assertEqual(res.get("_status"), 404)
+
+    def test_non_togglable_refused_403(self):
+        res = server._toggle_extension("developer", False)  # builtin
+        self.assertEqual(res.get("_status"), 403)
+        self.assertNotIn("enabled: false", self.cfg.read_text(encoding="utf-8"))  # not written
+
+
 if __name__ == "__main__":
     unittest.main()
