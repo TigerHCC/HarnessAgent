@@ -136,6 +136,28 @@ the backend MCP server process.
 - `GET /api/health` — model + backend status + **live-discovered MCP extensions + tool list** (snapshot cache, version cached at startup)
 - `POST /api/chat` — `{session, message, mode, attachments?}` → streamed NDJSON events
 - `POST /api/upload?session=&name=` — raw file bytes in the body → saved to `workspace/uploads/<session>/`; returns `{ok, name, size}`
+- `POST /api/extensions/toggle` — `{id, enabled}` → flips one MCP's `enabled:` in `config.yaml`
+
+## Text encoding (non-ASCII / CJK input)
+Everything on the wire is **UTF-8**, and `server.ps1` decodes it as UTF-8 **explicitly** — see
+[`http_encoding.ps1`](http_encoding.ps1).
+
+This is not incidental. .NET's `HttpListenerRequest.ContentEncoding` falls back to
+`Encoding.Default` — the machine's **ANSI codepage** (Big5, GBK, Shift-JIS, 1252…) — whenever the
+request's `Content-Type` carries no `charset`, which is exactly what the browser sends for
+`application/json`. On a Chinese/Japanese Windows, a CJK chat message would be decoded as Big5/GBK
+and reach `goose` as mojibake. `HttpListenerRequest.QueryString` has the same flaw (it %-decodes
+using `ContentEncoding`), which mangled non-ASCII **upload filenames** too. Both are fixed by never
+consulting `ContentEncoding`: JSON is UTF-8 by definition (RFC 8259 §8.1) and URI percent-escapes
+are UTF-8 by definition (RFC 3986 §2.5).
+
+`server.py` is correct by construction — `json.loads()` on `bytes` auto-detects UTF-8 and `parse_qs`
+defaults to it — so this only ever affected the PowerShell backend. Regression tests:
+`tests/test_encoding_ps.py`.
+
+> Related trap when editing the PowerShell: **PowerShell 5.1 reads a BOM-less `.ps1` as ANSI**, so a
+> literal CJK string in the source is corrupted at *parse* time. That's why `server.ps1` builds its
+> Chinese from code points (`-join (@(0x9644,0x52A0,…) | %{[char]$_})`) instead of writing it inline.
 
 ## Attaching files
 The composer has a 📎 button (plus drag-drop and paste). On send, each staged file is

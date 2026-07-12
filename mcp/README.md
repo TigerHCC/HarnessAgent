@@ -119,6 +119,25 @@ failing outright:
 | `procinspect` | no | psutil / Restart Manager / wait-chain all work unelevated; unqueryable threads are reported, not fatal. |
 | `netconn` · `perfmon` · `drift` · `winupdate` | **no** | No admin gate anywhere in their code. |
 
+#### FAQ
+
+**Q: Goose runs unelevated but the MCP servers run elevated. Does that break Goose's ability to call them?**
+No. The servers are separate processes reached over loopback HTTP (`streamable_http`), not in-process
+libraries. Goose just sends an HTTP request to `127.0.0.1:87xx` — and a **TCP socket has no UAC/UIPI
+boundary** (UIPI restricts window messages, not sockets). An unprivileged client connecting to a port
+opened by an elevated process is completely normal. Keeping the elevation on the server side, so the agent
+never needs it, is the *point* of this architecture.
+
+**Q: The Scheduled Tasks launch the servers with admin rights at system boot, right?**
+Half right. They run **elevated** (`RunLevel Highest`, and Scheduled Tasks elevate *silently* — no UAC
+prompt), as **your own user account** (not `SYSTEM`), so your account must be in Administrators. But the
+trigger is **`-AtLogOn`, not `-AtStartup`**: they start **when you log in**, not when the machine boots. A
+box that powers on and sits at the login screen is running none of them.
+
+This is deliberate. Switching to `-AtStartup` + `SYSTEM` would change what the servers *see*: `exec`'s
+UserAssist and `drift`'s HKCU autoruns read the **current user's** registry hive, so under `SYSTEM` they
+would report on SYSTEM's hive instead of yours.
+
 > **Security note:** the servers bind `127.0.0.1` with **no authentication**. Any process on this box —
 > including unprivileged ones — can call them and read data that would normally require admin. Everything
 > is read-only, so this is information disclosure, not privilege escalation, but it is effectively a

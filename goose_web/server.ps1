@@ -309,11 +309,13 @@ function Discover-Extension($e, $gooseBin) {
 }
 '@
 
-# Fold in the per-MCP toggle helpers so both the main scope (seed) and the
-# worker/discoverer runspaces (which Invoke-Expression this text) get them.
+# Fold in the per-MCP toggle helpers and the UTF-8 request decoders so both the main
+# scope (seed) and the worker/discoverer runspaces (which Invoke-Expression this text) get them.
 $ToggleFns = ''
 try { $ToggleFns = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $Here 'mcp_toggle.ps1') } catch { Write-Warning "[goose_web] could not load mcp_toggle.ps1: $_" }
-$DiscoveryFns = $DiscoveryFns + "`n" + $ToggleFns
+$EncodingFns = ''
+try { $EncodingFns = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $Here 'http_encoding.ps1') } catch { Write-Warning "[goose_web] could not load http_encoding.ps1: $_" }
+$DiscoveryFns = $DiscoveryFns + "`n" + $ToggleFns + "`n" + $EncodingFns
 
 # Seed the snapshot synchronously (cheap config parse) so /api/health is never
 # empty; the daemon below replaces it with real tool counts within seconds.
@@ -511,11 +513,13 @@ $worker = {
     function Handle-Upload($ctx, $S) {
         if ($S.token) {
             $sup = $ctx.Request.Headers['X-Goose-Token']
-            if (-not $sup) { $sup = $ctx.Request.QueryString['token'] }
+            if (-not $sup) { $sup = Get-QueryValue $ctx.Request.Url.Query 'token' }
             if ($sup -ne $S.token) { Send-Json $ctx @{ error = 'unauthorized' } 401; return }
         }
-        $session = $ctx.Request.QueryString['session']; if (-not $session) { $session = 'web' }
-        $name = Safe-Name $ctx.Request.QueryString['name']
+        # Get-QueryValue, not Request.QueryString: the latter %-decodes with ContentEncoding
+        # (the ANSI codepage when the request has no charset), which mangles non-ASCII filenames.
+        $session = Get-QueryValue $ctx.Request.Url.Query 'session'; if (-not $session) { $session = 'web' }
+        $name = Safe-Name (Get-QueryValue $ctx.Request.Url.Query 'name')
         $len = [int64]$ctx.Request.ContentLength64
         if ($len -le 0) { Send-Json $ctx @{ error = 'empty body' } 400; return }
         if ($len -gt $S.maxUploadBytes) { Send-Json $ctx @{ error = "file too large (> $($S.maxUploadMb) MB)" } 413; return }
@@ -536,7 +540,7 @@ $worker = {
 
     function Handle-Toggle($ctx, $S) {
         if ($S.token) {
-            $sup = $ctx.Request.Headers['X-Goose-Token']; if (-not $sup) { $sup = $ctx.Request.QueryString['token'] }
+            $sup = $ctx.Request.Headers['X-Goose-Token']; if (-not $sup) { $sup = Get-QueryValue $ctx.Request.Url.Query 'token' }
             if ($sup -ne $S.token) { Send-Json $ctx @{ error = 'unauthorized' } 401; return }
         }
         $reader = New-Object System.IO.StreamReader($ctx.Request.InputStream, [System.Text.Encoding]::UTF8)
@@ -750,12 +754,13 @@ $worker = {
     function Handle-Chat($ctx, $S) {
         if ($S.token) {
             $supplied = $ctx.Request.Headers['X-Goose-Token']
-            if (-not $supplied) { $supplied = $ctx.Request.QueryString['token'] }
+            if (-not $supplied) { $supplied = Get-QueryValue $ctx.Request.Url.Query 'token' }
             if ($supplied -ne $S.token) { Send-Json $ctx @{ error = 'unauthorized' } 401; return }
         }
-        $encR = if ($ctx.Request.ContentEncoding) { $ctx.Request.ContentEncoding } else { [System.Text.Encoding]::UTF8 }
-        $reader = New-Object System.IO.StreamReader($ctx.Request.InputStream, $encR)
-        $bodyText = $reader.ReadToEnd(); $reader.Close()
+        # JSON is UTF-8 by definition (RFC 8259). Request.ContentEncoding must NOT be trusted here:
+        # the browser sends "application/json" with no charset, and .NET then falls back to the
+        # system ANSI codepage, which turns a Chinese message into mojibake before goose ever sees it.
+        $bodyText = Read-Utf8Body $ctx
         $req = $null
         try { if ($bodyText.Trim()) { $req = $bodyText | ConvertFrom-Json } } catch { Send-Json $ctx @{ error = 'bad json' } 400; return }
         if ($null -eq $req) { Send-Json $ctx @{ error = 'bad json' } 400; return }
