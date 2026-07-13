@@ -48,9 +48,11 @@ HarnessAgent wires the [Goose](https://github.com/aaif-goose/goose) CLI/agent to
 | DTM mcp-proxy | GB10 / Linux | `http://127.0.0.1:8765/mcp` (`/sse` legacy) | **8765** |
 | PK mcp-proxy | GB10 / Linux | `http://127.0.0.1:8766/mcp` (`/sse` legacy) | **8766** |
 | Windows diagnostic MCP suite (12) | **Windows only** | `http://127.0.0.1:8777…8788/mcp` (loopback) | **8777–8788** |
+| `dtmsdk` MCP (DTP Sample/SDK utils) | **Windows only** | `http://127.0.0.1:8789/mcp` (loopback) | **8789** |
+| `obsidian` MCP (vault, unelevated) | **Windows only** | `http://127.0.0.1:8790/mcp` (loopback) | **8790** |
 | goose_web UI | Either | `http://0.0.0.0:8799` | **8799** |
 
-The 12 diagnostic servers, in port order: `srum` 8777 · `eventlog` 8778 · `crash` 8779 · `exec` 8780 · `drift` 8781 · `netconn` 8782 · `perfmon` 8783 · `disk` 8784 · `procinspect` 8785 · `memstate` 8786 · `filterstack` 8787 · `winupdate` 8788.
+The 12 diagnostic servers, in port order: `srum` 8777 · `eventlog` 8778 · `crash` 8779 · `exec` 8780 · `drift` 8781 · `netconn` 8782 · `perfmon` 8783 · `disk` 8784 · `procinspect` 8785 · `memstate` 8786 · `filterstack` 8787 · `winupdate` 8788. Plus `dtmsdk` 8789 (DTP utils — not read-only, confirmation-gated) and `obsidian` 8790 (vault read/write — gated, and the only server that runs unelevated). All 14 install via `setup_mcp_servers.ps1`.
 
 > The diagnostic suite is **Windows-only** — it reads live Windows data (`SRUDB.dat`, the Event Log, WER dumps, Prefetch, the USN journal, kernel pool tags, the minifilter stack…) and has no Linux equivalent. Everything else is GB10/Linux, except the Goose CLI and goose_web which run on either box and connect to the GB10 model server.
 

@@ -142,6 +142,8 @@ failing outright:
 | `memstate` | mostly no | Pool-tag enumeration works unelevated; only memory-list composition wants `SeProfileSingleProcessPrivilege`. |
 | `procinspect` | no | psutil / Restart Manager / wait-chain all work unelevated; unqueryable threads are reported, not fatal. |
 | `netconn` · `perfmon` · `drift` · `winupdate` | **no** | No admin gate anywhere in their code. |
+| `dtmsdk` (8789) | at runtime, yes | The DTP utils require Administrator. (The installer registers its task RunLevel Highest.) |
+| `obsidian` (8790) | **never** | Only reads/writes user files in the vault. Its task runs **RunLevel Limited** (unelevated) — the only server that does. |
 
 #### FAQ
 
