@@ -10,11 +10,12 @@
   fresh machine, then this. Requires: an elevated PowerShell (Scheduled Tasks + the servers read
   SYSTEM-hive / kernel data), Python 3 on PATH with pip.
 
-  The 13 servers (all loopback, streamable HTTP). The first 12 are read-only diagnostic MCPs:
+  The 14 servers (all loopback, streamable HTTP). The first 12 are read-only diagnostic MCPs:
     srum 8777, eventlog 8778, crash 8779, exec 8780, drift 8781, netconn 8782, perfmon 8783,
     disk 8784, procinspect 8785, memstate 8786, filterstack 8787, winupdate 8788
-  The 13th, dtmsdk 8789, is the DTM Sample/SDK util MCP -- NOT read-only (can transmit telemetry / change
-  DTP config; gated by per-command confirmation).
+  dtmsdk 8789 is the DTM Sample/SDK util MCP -- NOT read-only (transmits telemetry / changes DTP config;
+  gated per-command). obsidian 8790 is the Obsidian vault MCP -- writes markdown notes (gated per-note)
+  and is the only server that runs UNELEVATED (RunLevel Limited).
   This setup also installs Sysmon (kernel driver + audit config; -SkipSysmon to opt out) to feed eventlog.
 
   NOTE ON PRIVILEGE: this INSTALLER needs Administrator (registering a RunLevel-Highest Scheduled
@@ -92,10 +93,12 @@ $MCPS = @(
      desc="Windows Update history + failure HRESULTs + pending-reboot state via local MCP server (127.0.0.1:8788)" }
   @{ name="dtmsdk";  dir="dtm_sdk";  port=8789; task="DtmSdk-MCP";
      desc="DTM Sample/SDK utilities (DTP client SDK CLI wrappers: instrumentation/analytics/transmission/DTM/platinum) via local elevated MCP server (127.0.0.1:8789). NOT read-only -- can transmit telemetry + change DTP config; gated by per-command confirmation." }
+  @{ name="obsidian"; dir="windows_obsidian"; port=8790; task="Obsidian-MCP"; runlevel="Limited";
+     desc="Obsidian vault access (read/search/link-graph/tags/frontmatter + gated create/update of markdown notes) via local MCP server (127.0.0.1:8790). Runs UNELEVATED; writes are per-note confirmation-gated." }
 )
 
 $mode = if ($Uninstall) { "UNINSTALL" } else { "setup" }
-Write-Host "=== HarnessAgent MCP servers $mode (13: 12 diagnostic + dtmsdk) ===" -ForegroundColor Magenta
+Write-Host "=== HarnessAgent MCP servers $mode (14: 12 diagnostic + dtmsdk + obsidian) ===" -ForegroundColor Magenta
 
 # --- 0. Prereqs ---
 # Admin is needed to register/unregister a RunLevel-Highest Scheduled Task. It is NOT a statement
@@ -206,7 +209,8 @@ foreach ($m in $MCPS) {
     Info "$($m.name): registering Scheduled Task '$($m.task)' (elevated, at logon)..."
     $action = New-ScheduledTaskAction -Execute $py -Argument "`"$server`"" -WorkingDirectory $dir
     $trigger = New-ScheduledTaskTrigger -AtLogOn
-    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -RunLevel Highest -LogonType Interactive
+    $rl = if ($m.runlevel) { $m.runlevel } else { "Highest" }
+    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -RunLevel $rl -LogonType Interactive
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
     Register-ScheduledTask -TaskName $m.task -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
   }

@@ -18,10 +18,12 @@ code read — the loop must reproduce each one before fixing it, and move it to 
   Prefetch, pool tags). **`dtmsdk` (port 8789) raises the stakes: it is NOT read-only** — a local process
   could drive DTP, transmit telemetry to Dell, or change DTP config through it. dtmsdk's confirm-token
   gate is an argv binding, not a real second factor (deterministic, self-serviceable by the caller — see
-  `mcp/dtm_sdk/DESIGN.md`), so it does not mitigate an unauthenticated local caller. A per-machine shared
-  token (via each extension's `headers:`) would close both. **Needs a user decision before implementing**
-  (touches all 13 servers + `config.yaml` + the installer). Do not unilaterally change the security model
-  — ask.
+  `mcp/dtm_sdk/DESIGN.md`), so it does not mitigate an unauthenticated local caller. **`obsidian`
+  (port 8790) also raises the stakes: it can WRITE files** — a local process could create/overwrite
+  markdown in the vault via its (same-style, self-serviceable) confirm flow. A per-machine shared token
+  (via each extension's `headers:`) would close all of these. **Needs a user decision before
+  implementing** (touches all 14 servers + `config.yaml` + the installer). Do not unilaterally change the
+  security model — ask.
 
 - **[Minor] `RUN.md` never mentions the Windows diagnostic MCP suite.** `README.md` points at it for
   "how to launch the harness", but it covers only the GB10/DTM/PK side — a reader looking for

@@ -81,6 +81,16 @@ change DTP configuration, so every command outside a per-util safe allowlist req
 confirmation token. Requires Administrator and a running Dell TechHub service. Paths live in
 `dtm_sdk/config.json` (one-line redeploy via `samples_root`). See [`dtm_sdk/README.md`](dtm_sdk/README.md).
 
+### Obsidian vault MCP (`windows_obsidian/`, 127.0.0.1:8790) — the only unelevated MCP
+
+`obsidian` gives the harness file-level access to an Obsidian vault (read/search/list, wikilink &
+backlink graph, tag & frontmatter queries) plus **confirmation-gated** create/update of markdown notes.
+Filesystem-based (no Obsidian app/plugin needed); complementary to the `dtm` RAG (semantic) — this is
+exact structured access. **Runs unelevated** (RunLevel Limited) — it only reads/writes user files. Every
+path is confined to the vault's `.md` files (no traversal/symlink escape); there is no delete and no
+silent overwrite. Vault path lives in `windows_obsidian/config.json` (one-line redeploy). See
+[`windows_obsidian/README.md`](windows_obsidian/README.md).
+
 **One-click setup on a new machine** (elevated, idempotent — installs Python deps, registers + starts a
 logon Scheduled Task per server, and registers each extension into goose's `config.yaml`):
 ```powershell
