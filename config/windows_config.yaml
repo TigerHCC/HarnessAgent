@@ -109,6 +109,27 @@ extensions:
     timeout: 600
     description: PersonalKnowledge DTM Knowledge Agent (telemetry/triage/plugin/hw-spec RAG) via streamable_http (mcp-proxy 192.168.86.44:8765)
 
+  # PersonalKnowledge KB MCP -- stateless semantic retrieval (search_kb /
+  # get_document / list_sources) over the pk_* ChromaDB collections.
+  # Transport: streamable_http via the pk-mcp-proxy on :8766 (endpoint /mcp), run by
+  # the pk-mcp-proxy system service (source PersonalKnowledge/scripts/pk-mcp-proxy.service).
+  # Enable/switch via HarnessAgent/mcp/enable_pk_mcp.sh:
+  #   PK_MCP_REPLACE=1 PK_MCP_URI=http://127.0.0.1:8766/mcp ./enable_pk_mcp.sh
+  # No-dependency fallback (PK is fast/stateless, so stdio works too -- first call is
+  # just one embedding on vLLM :8001):
+  #   PK_MCP_REPLACE=1 ./enable_pk_mcp.sh        # -> stdio via mcp/qb10_pk_mcp.sh
+  pk:
+    type: streamable_http
+    bundled: false
+    name: pk
+    enabled: true
+    uri: http://192.168.86.44:8766/mcp
+    headers: {}
+    env_keys: []
+    timeout: 600
+    description: PersonalKnowledge KB MCP (search_kb / get_document / list_sources) via streamable_http (pk-mcp-proxy :8766)
+
+
   # Windows SRUM + live system resource usage (LOCAL elevated server on this box).
   # Server: HarnessAgent/mcp/windows_srum/ (start_srum_mcp.ps1 as admin, or install_task.ps1).
   # Tools: live_snapshot, top_processes (real-time) + srum_app_usage, srum_network_usage,
