@@ -1148,7 +1148,7 @@ Expected: PASS (14 tests).
 - [ ] **Step 6: Run the whole always-on suite**
 
 Run: `cd mcp/windows_obsidian && python -m pytest tests/ -q --ignore=tests/test_live.py`
-Expected: PASS (tokens 5 + config 7 + vault ~14 + index 15 + server 14 = 55).
+Expected: PASS (tokens 5 + config 7 + vault ~14 + index 15 + server 13 = 53).
 
 - [ ] **Step 7: Commit**
 
@@ -1349,7 +1349,7 @@ git commit -m "docs(obsidian): README, DESIGN, suite cross-link"
 - [ ] **Step 1: Run the whole always-on suite**
 
 Run: `cd mcp/windows_obsidian && python -m pytest tests/ -q --ignore=tests/test_live.py`
-Expected: PASS (55 tests).
+Expected: PASS (53 tests: tokens 5 + config 7 + vault 14 + index 14 + server 13).
 
 - [ ] **Step 2: Confirm live tests skip cleanly**
 
