@@ -26,9 +26,14 @@ benefit of seeing unsaved edits and triggering Obsidian commands — not worth i
 
 Same pattern as the other MCPs, with one deliberate difference — **no elevation**:
 
+Deployment is **Windows-only** (PowerShell scheduled task + a Windows vault path), so it lives in the
+`windows_*` family as `mcp/windows_obsidian/`. The Python core (config/vault/index/tokens/server) is
+itself portable; only the install scripts and default path are Windows-specific. Directory-minus-`windows_`
+gives the extension id, matching the twelve diagnostic MCPs.
+
 | Property | Value |
 |---|---|
-| Directory | `mcp/obsidian/` |
+| Directory | `mcp/windows_obsidian/` |
 | Extension id | `obsidian` |
 | Transport | `streamable_http`, `http://127.0.0.1:8790/mcp` |
 | Port | **8790** (next free after dtmsdk's 8789) |
@@ -110,7 +115,7 @@ op/path/mode/content; a mismatch is refused. Tokens are **single-use** and expir
 
 ## Configuration
 
-`mcp/obsidian/config.json`, resolved `${var}` → env override → as-is (same loader shape as `dtmsdk`):
+`mcp/windows_obsidian/config.json`, resolved `${var}` → env override → as-is (same loader shape as `dtmsdk`):
 
 ```json
 {
@@ -134,7 +139,7 @@ non-`.md` file are ignored everywhere — search, list, tags, links, find.
 ## File structure
 
 ```
-mcp/obsidian/
+mcp/windows_obsidian/
   obsidian_mcp_server.py   # FastMCP; the 10 tools + confirm-token store; thin
   config.py                # load, ${} expansion, env override, _resolved map
   vault.py                 # path confinement + read/write primitives + .md-only walk
