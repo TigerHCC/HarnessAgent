@@ -10,9 +10,12 @@
   fresh machine, then this. Requires: an elevated PowerShell (Scheduled Tasks + the servers read
   SYSTEM-hive / kernel data), Python 3 on PATH with pip.
 
-  The 12 servers (all loopback, read-only, streamable HTTP):
+  The 13 servers (all loopback, streamable HTTP). The first 12 are read-only diagnostic MCPs:
     srum 8777, eventlog 8778, crash 8779, exec 8780, drift 8781, netconn 8782, perfmon 8783,
     disk 8784, procinspect 8785, memstate 8786, filterstack 8787, winupdate 8788
+  The 13th, dtmsdk 8789, is the DTM Sample/SDK util MCP -- NOT read-only (can transmit telemetry / change
+  DTP config; gated by per-command confirmation).
+  This setup also installs Sysmon (kernel driver + audit config; -SkipSysmon to opt out) to feed eventlog.
 
   NOTE ON PRIVILEGE: this INSTALLER needs Administrator (registering a RunLevel-Highest Scheduled
   Task requires it). That is separate from what each SERVER needs at runtime -- most of the 12 have
@@ -25,9 +28,14 @@
 .PARAMETER NoStart       Register the tasks but don't start the servers now.
 .PARAMETER SkipConfig    Don't touch goose's config.yaml.
 .PARAMETER ConfigPath    Override goose config path (default %APPDATA%\Block\goose\config\config.yaml).
-.PARAMETER Uninstall     Remove everything this script installs: stop the 12 servers, unregister the
-                         12 Scheduled Tasks, and strip the 12 extension blocks from goose's
-                         config.yaml (backed up first). Leaves pip packages alone.
+.PARAMETER Uninstall     Remove everything this script installs: stop the servers, unregister the
+                         Scheduled Tasks, and strip the extension blocks from goose's config.yaml
+                         (backed up first). Leaves pip packages and Sysmon alone.
+.PARAMETER SkipSysmon    Don't install/refresh Sysmon. By default this script installs the Microsoft
+                         Sysinternals Sysmon kernel driver + audit config from tools\sysmon\Sysmon.zip
+                         (a security-relevant change that ACCEPTS the Sysinternals EULA); it feeds the
+                         eventlog MCP. Idempotent: if Sysmon is already installed, its config is
+                         refreshed rather than reinstalled.
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File .\setup_mcp_servers.ps1
@@ -43,6 +51,7 @@ param(
   [switch]$NoStart,
   [switch]$SkipConfig,
   [switch]$Uninstall,
+  [switch]$SkipSysmon,
   [string]$ConfigPath = (Join-Path $env:APPDATA "Block\goose\config\config.yaml")
 )
 
@@ -86,7 +95,7 @@ $MCPS = @(
 )
 
 $mode = if ($Uninstall) { "UNINSTALL" } else { "setup" }
-Write-Host "=== HarnessAgent MCP servers $mode (12 diagnostic MCPs) ===" -ForegroundColor Magenta
+Write-Host "=== HarnessAgent MCP servers $mode (13: 12 diagnostic + dtmsdk) ===" -ForegroundColor Magenta
 
 # --- 0. Prereqs ---
 # Admin is needed to register/unregister a RunLevel-Highest Scheduled Task. It is NOT a statement
@@ -257,6 +266,58 @@ else {
   }
 }
 
+# --- 3.5 Sysmon (feeds the eventlog MCP; not an MCP itself) ------------------
+# Installs the Microsoft Sysinternals Sysmon kernel driver + low-noise audit config from the committed
+# tools\sysmon\Sysmon.zip, so the eventlog MCP can query Microsoft-Windows-Sysmon/Operational. This is a
+# security-relevant system change and ACCEPTS the Sysinternals EULA (tools\sysmon\Eula.txt) via
+# -accepteula -- pass -SkipSysmon to opt out. Idempotent: if Sysmon is already installed, its config is
+# refreshed (-c) instead of reinstalling (which would error).
+if ($SkipSysmon) { Warn "Skipping Sysmon (-SkipSysmon). Install manually later: see tools\sysmon\README.md." }
+else {
+  $sysmonDir = Join-Path $here "tools\sysmon"
+  $sysmonCfg = Join-Path $sysmonDir "sysmon-config.xml"
+  # Pick the binary this machine can run (ARM64 has its own build; x64 vs x86 otherwise). Use the
+  # MACHINE arch, not the process arch: a 32-bit or x64-emulated PowerShell host reports the wrong value
+  # in PROCESSOR_ARCHITECTURE. PROCESSOR_ARCHITEW6432 holds the true arch under WOW64/emulation.
+  $machineArch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
+  $exeName = switch ($machineArch) {
+    "ARM64" { "Sysmon64a.exe" } "AMD64" { "Sysmon64.exe" } default { "Sysmon.exe" }
+  }
+  $sysmonExe = Join-Path $sysmonDir $exeName
+  if (-not (Test-Path $sysmonExe)) {
+    $zip = Join-Path $sysmonDir "Sysmon.zip"
+    if (Test-Path $zip) {
+      Info "Extracting $exeName from Sysmon.zip..."
+      try { Expand-Archive -Path $zip -DestinationPath $sysmonDir -Force } catch { Warn "Sysmon.zip extract failed: $_" }
+    }
+  }
+  if (-not (Test-Path $sysmonExe)) {
+    Warn "$exeName not found and Sysmon.zip missing -- skipping Sysmon. See tools\sysmon\README.md."
+  }
+  elseif (-not (Test-Path $sysmonCfg)) {
+    Warn "sysmon-config.xml not found -- skipping Sysmon."
+  }
+  else {
+    # Match ANY Sysmon service name (Sysmon / Sysmon64 / Sysmon64a on ARM64 / a custom -i name) so an
+    # already-installed Sysmon always takes the -c refresh path, never an erroring -i reinstall.
+    $svc = Get-Service -Name "Sysmon*" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($svc) {
+      Info "Sysmon already installed ($($svc.Name)) -- refreshing audit config (no reinstall)..."
+      # -accepteula on -c too: if the current user never accepted the EULA (Sysmon installed by another
+      # admin/SCCM), a bare -c can pop an interactive EULA dialog and hang this non-interactive script.
+      & $sysmonExe -accepteula -c $sysmonCfg | Out-Host
+      if ($LASTEXITCODE -eq 0) { Ok "Sysmon config refreshed from sysmon-config.xml." }
+      else { Warn "Sysmon -c returned exit $LASTEXITCODE (see tools\sysmon\README.md)." }
+    }
+    else {
+      Warn "Installing Sysmon (Microsoft kernel driver + audit config). This ACCEPTS the Sysinternals EULA (tools\sysmon\Eula.txt)."
+      & $sysmonExe -accepteula -i $sysmonCfg | Out-Host
+      if ($LASTEXITCODE -eq 0) { Ok "Sysmon installed -> query it via the eventlog MCP (channel Microsoft-Windows-Sysmon/Operational)." }
+      else { Warn "Sysmon install returned exit $LASTEXITCODE (see tools\sysmon\README.md)." }
+    }
+  }
+}
+
 # --- 4. Health check ---
 Start-Sleep -Seconds 4
 Write-Host ""
@@ -275,4 +336,4 @@ foreach ($m in $MCPS) {
 }
 Write-Host ""
 Ok "Done. Verify discovery: have goose call each *_health tool, or (if goose_web runs) open its sidebar."
-Warn "Sysmon is separate (kernel driver + EULA) -- install it yourself: see tools\sysmon\README.md."
+if (-not $SkipSysmon) { Ok "Sysmon step ran (see above). Query it via the eventlog MCP: Microsoft-Windows-Sysmon/Operational." }

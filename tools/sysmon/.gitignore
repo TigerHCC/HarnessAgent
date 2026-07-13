@@ -1,5 +1,5 @@
-# Downloaded Sysinternals binaries (fetch fresh from https://download.sysinternals.com/files/Sysmon.zip)
-Sysmon.zip
+# Sysmon.zip is committed (setup_mcp_servers.ps1 extracts + installs it). The loose binaries it
+# unpacks to stay out of git -- they come from the committed zip.
 Sysmon.exe
 Sysmon64.exe
 Sysmon64a.exe

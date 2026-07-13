@@ -89,9 +89,15 @@ powershell -ExecutionPolicy Bypass -File .\..\setup_mcp_servers.ps1    # 2. all 
 ```
 `setup_mcp_servers.ps1` flags: `-SkipDeps` (no `pip install`) · `-SkipTasks` (don't register Scheduled
 Tasks) · `-NoStart` (register but don't launch) · `-SkipConfig` (leave `config.yaml` alone) ·
-`-ConfigPath <path>` (non-default goose config) · **`-Uninstall`** (stop the 12 servers, unregister the 12
-Scheduled Tasks, and strip the 12 extension blocks from `config.yaml` — backed up to
-`config.yaml.bak-mcpuninstall` first; pip packages are left alone).
+`-SkipSysmon` (don't install/refresh Sysmon) · `-ConfigPath <path>` (non-default goose config) ·
+**`-Uninstall`** (stop the servers, unregister the Scheduled Tasks, and strip the extension blocks from
+`config.yaml` — backed up to `config.yaml.bak-mcpuninstall` first; pip packages and Sysmon are left alone).
+
+By default the setup also installs **Sysmon** (Microsoft kernel driver + audit config from the committed
+`../tools/sysmon/Sysmon.zip`) so the `eventlog` MCP can query `Microsoft-Windows-Sysmon/Operational`. This
+is a security-relevant change that **accepts the Sysinternals EULA** — it runs only when you run the setup
+script, and `-SkipSysmon` opts out. Idempotent: an already-installed Sysmon has its config refreshed, not
+reinstalled. See [`../tools/sysmon/README.md`](../tools/sysmon/README.md).
 
 Each server can also be started standalone (`windows_<name>\start_<name>_mcp.ps1`) or persisted/removed
 individually via its own `install_task.ps1` / `uninstall_task.ps1`. The full extension block set is in
