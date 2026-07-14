@@ -2,6 +2,7 @@ import importlib.util
 import json
 import socket
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -38,6 +39,10 @@ class FakeMcp:
                 if method == "notifications/initialized":
                     self.send_response(202)
                     self.end_headers()
+                    return
+
+                if method == "initialize" and owner.mode == "http_error":
+                    self.send_error(500, "initialize failed")
                     return
 
                 if method == "initialize":
@@ -83,16 +88,59 @@ class FakeMcp:
                 else:
                     raise AssertionError(f"unexpected method {method}")
 
+                if owner.mode == "wrong_initialize_id" and method == "initialize":
+                    response["id"] = 999
+                elif owner.mode == "wrong_tools_id" and method == "tools/list":
+                    response["id"] = 999
+                elif owner.mode == "wrong_health_id" and method == "tools/call":
+                    response["id"] = 999
+                elif owner.mode == "malformed_content" and method == "tools/call":
+                    response["result"] = {"content": [{}]}
+                elif owner.mode == "empty_content" and method == "tools/call":
+                    response["result"] = {"content": []}
+
                 body = json.dumps(response).encode()
-                if owner.content_type == "text/event-stream":
+                if owner.mode == "bad_json" and method == "initialize":
+                    body = b"{not-json"
+                elif owner.mode == "bad_sse" and method == "initialize":
+                    body = b"event: message\ndata: {not-json\n\n"
+                elif owner.mode == "complex_sse":
+                    notification = json.dumps(
+                        {"jsonrpc": "2.0", "method": "notifications/progress"}
+                    ).encode()
+                    split_at = body.find(b",") + 1
+                    body = (
+                        b": keepalive\n\n"
+                        + b"data: "
+                        + notification
+                        + b"\n\n"
+                        + b"event: message\n"
+                        + b"data: "
+                        + body[:split_at]
+                        + b"\n"
+                        + b"data: "
+                        + body[split_at:].lstrip()
+                        + b"\n\n"
+                    )
+                elif owner.content_type == "text/event-stream":
                     body = b"event: message\n" + b"data: " + body + b"\n\n"
                 self.send_response(200)
-                self.send_header("Content-Type", owner.content_type)
+                response_type = (
+                    "text/event-stream" if owner.mode in {"bad_sse", "complex_sse"}
+                    else owner.content_type
+                )
+                self.send_header("Content-Type", response_type)
                 if method == "initialize":
                     self.send_header("Mcp-Session-Id", "test-session")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
-                self.wfile.write(body)
+                if owner.mode == "slow_initialize" and method == "initialize":
+                    for byte in body:
+                        self.wfile.write(bytes([byte]))
+                        self.wfile.flush()
+                        time.sleep(0.03)
+                else:
+                    self.wfile.write(body)
 
             def log_message(self, format, *args):
                 pass
@@ -249,3 +297,95 @@ def test_main_returns_failure_when_a_default_server_fails(tmp_path):
     module.DEFAULT_MANIFEST = manifest
 
     assert module.main([]) == 1
+
+
+@pytest.mark.parametrize("mode", ["bad_json", "bad_sse", "http_error"])
+def test_initialize_response_failures_are_not_connection_failures(
+    fake_mcp_factory, mode
+):
+    server = fake_mcp_factory(mode=mode)
+
+    result = load_engine().test_server(
+        {"name": "sample", "port": server.port, "health_tool": "sample_health"}, 1
+    )
+
+    assert result["status"] == "failed"
+    assert result["failed_stage"] == "initialize"
+    assert result["error"]
+
+
+@pytest.mark.parametrize(
+    "mode,stage",
+    [
+        ("wrong_initialize_id", "initialize"),
+        ("wrong_tools_id", "tools_list"),
+        ("wrong_health_id", "health_call"),
+    ],
+)
+def test_server_rejects_unmatched_jsonrpc_response_ids(
+    fake_mcp_factory, mode, stage
+):
+    server = fake_mcp_factory(mode=mode)
+
+    result = load_engine().test_server(
+        {"name": "sample", "port": server.port, "health_tool": "sample_health"}, 1
+    )
+
+    assert result["status"] == "failed"
+    assert result["failed_stage"] == stage
+    assert result["error"]
+
+
+@pytest.mark.parametrize("mode", ["malformed_content", "empty_content"])
+def test_server_rejects_malformed_health_content(fake_mcp_factory, mode):
+    server = fake_mcp_factory(mode=mode)
+
+    result = load_engine().test_server(
+        {"name": "sample", "port": server.port, "health_tool": "sample_health"}, 1
+    )
+
+    assert result["status"] == "failed"
+    assert result["failed_stage"] == "health_call"
+    assert result["error"]
+
+
+def test_server_selects_matching_response_from_complex_sse(fake_mcp_factory):
+    server = fake_mcp_factory(mode="complex_sse")
+
+    result = load_engine().test_server(
+        {"name": "sample", "port": server.port, "health_tool": "sample_health"}, 1
+    )
+
+    assert result["status"] == "passed"
+    assert result["health"]["content"][0]["text"] == '{"ok": true}'
+
+
+def test_run_all_bounds_trickled_body_and_continues(fake_mcp_factory):
+    slow = fake_mcp_factory(mode="slow_initialize")
+    healthy = fake_mcp_factory()
+    entries = [
+        {"name": "slow", "port": slow.port, "health_tool": "sample_health"},
+        {"name": "healthy", "port": healthy.port, "health_tool": "sample_health"},
+    ]
+
+    started = time.monotonic()
+    results = load_engine().run_all(entries, timeout=0.15)
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 0.8
+    assert [result["status"] for result in results] == ["failed", "passed"]
+    assert results[0]["failed_stage"] == "initialize"
+
+
+def test_run_all_isolates_invalid_entry_metadata(fake_mcp_factory):
+    healthy = fake_mcp_factory()
+    entries = [
+        {"name": "invalid", "health_tool": "sample_health"},
+        {"name": "healthy", "port": healthy.port, "health_tool": "sample_health"},
+    ]
+
+    results = load_engine().run_all(entries, timeout=1)
+
+    assert [result["name"] for result in results] == ["invalid", "healthy"]
+    assert [result["status"] for result in results] == ["failed", "passed"]
+    assert results[0]["error"]
