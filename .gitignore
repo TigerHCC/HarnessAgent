@@ -12,3 +12,9 @@ workspace/uploads/
 
 # Isolated implementation worktrees
 .worktrees/
+
+# Subagent-driven development scratch state
+.superpowers/
+
+# MCP batch test reports
+/reports/mcp/

@@ -1,11 +1,18 @@
+import argparse
 import json
+import platform
+import socket
+import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 
 DEFAULT_MANIFEST = Path(__file__).resolve().parents[1] / "config" / "mcp_servers.json"
+DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "reports" / "mcp"
 
 
 class StageError(Exception):
@@ -149,7 +156,7 @@ def _validate_health_content(content, stage):
         raise StageError(stage, f"malformed health content item: {content_type!r}")
 
 
-def test_server(entry, timeout):
+def test_server(entry, timeout, host="127.0.0.1"):
     started = time.monotonic()
     name = entry.get("name", "<unknown>") if isinstance(entry, dict) else "<unknown>"
     stage = "connect"
@@ -167,7 +174,7 @@ def test_server(entry, timeout):
             raise StageError(stage, "server entry port must be an integer from 1 to 65535")
         if not isinstance(health_tool, str) or not health_tool:
             raise StageError(stage, "server health_tool must be a non-empty string")
-        url = f"http://127.0.0.1:{port}/mcp"
+        url = f"http://{host}:{port}/mcp"
         stage = "initialize"
         try:
             initialized, session_id = _post(
@@ -258,11 +265,206 @@ def test_server(entry, timeout):
         }
 
 
-def run_all(entries, timeout):
-    return [test_server(entry, timeout) for entry in entries]
+def run_all(entries, timeout, host="127.0.0.1"):
+    return [test_server(entry, timeout, host=host) for entry in entries]
+
+
+def _utc_text(value):
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _without_raw_headers(value):
+    if isinstance(value, dict):
+        return {
+            key: _without_raw_headers(item)
+            for key, item in value.items()
+            if key != "raw_headers"
+        }
+    if isinstance(value, list):
+        return [_without_raw_headers(item) for item in value]
+    return value
+
+
+def build_report(results, started_at, ended_at):
+    servers = _without_raw_headers(results)
+    passed = sum(result.get("status") == "passed" for result in servers)
+    return {
+        "started_at": _utc_text(started_at),
+        "ended_at": _utc_text(ended_at),
+        "duration_seconds": (ended_at - started_at).total_seconds(),
+        "runtime": {
+            "hostname": socket.gethostname(),
+            "platform": platform.platform(),
+            "python_version": platform.python_version(),
+        },
+        "summary": {
+            "total": len(servers),
+            "passed": passed,
+            "failed": len(servers) - passed,
+        },
+        "servers": servers,
+    }
+
+
+def _render_markdown(report):
+    summary = report["summary"]
+    lines = [
+        "# MCP Batch Test Report",
+        "",
+        f"Started: `{report['started_at']}`  ",
+        f"Ended: `{report['ended_at']}`  ",
+        f"Duration: `{report['duration_seconds']:.3f}s`  ",
+        (
+            f"Result: **{summary['passed']} passed, {summary['failed']} failed, "
+            f"{summary['total']} total**"
+        ),
+        "",
+        "| Server | Status | Stage | Tools | Duration |",
+        "| --- | --- | --- | ---: | ---: |",
+    ]
+    for server in report["servers"]:
+        status = "PASS" if server.get("status") == "passed" else "FAIL"
+        stage = server.get("failed_stage", "-")
+        tools = server.get("tool_count", "-")
+        duration = server.get("duration_seconds", 0)
+        lines.append(
+            f"| {server.get('name', '<unknown>')} | {status} | {stage} | "
+            f"{tools} | {duration:.3f}s |"
+        )
+
+    failures = [s for s in report["servers"] if s.get("status") != "passed"]
+    if failures:
+        lines.extend(["", "## Failure Details"])
+        for server in failures:
+            lines.extend(
+                [
+                    "",
+                    f"### {server.get('name', '<unknown>')}",
+                    "",
+                    f"- Stage: `{server.get('failed_stage', 'unknown')}`",
+                    f"- Error: {server.get('error', 'unknown error')}",
+                ]
+            )
+
+    for server in report["servers"]:
+        if "health" not in server:
+            continue
+        lines.extend(
+            [
+                "",
+                f"## Health: {server.get('name', '<unknown>')}",
+                "",
+                "```json",
+                json.dumps(server["health"], indent=2, ensure_ascii=True),
+                "```",
+            ]
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _atomic_write(path, content):
+    with tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", delete=False
+    ) as temporary:
+        temporary.write(content)
+        temporary_path = Path(temporary.name)
+    temporary_path.replace(path)
+
+
+def write_reports(report, output_dir):
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    ended_at = datetime.fromisoformat(report["ended_at"].replace("Z", "+00:00"))
+    timestamp = ended_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    base = f"mcp-test-{timestamp}"
+    suffix = 0
+    while True:
+        candidate = base if suffix == 0 else f"{base}-{suffix}"
+        json_path = output_dir / f"{candidate}.json"
+        markdown_path = output_dir / f"{candidate}.md"
+        if not json_path.exists() and not markdown_path.exists():
+            break
+        suffix += 1
+
+    _atomic_write(json_path, json.dumps(report, indent=2, ensure_ascii=True) + "\n")
+    _atomic_write(markdown_path, _render_markdown(report))
+    return json_path, markdown_path
+
+
+def _positive_seconds(value):
+    seconds = float(value)
+    if seconds <= 0:
+        raise argparse.ArgumentTypeError("timeout must be greater than zero")
+    return seconds
+
+
+def _parse_args(argv):
+    parser = argparse.ArgumentParser(description="Test all configured MCP servers")
+    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--timeout", type=_positive_seconds, default=15.0)
+    parser.add_argument("--host", default="127.0.0.1")
+    return parser.parse_args(argv)
+
+
+def _validate_manifest(entries):
+    if not isinstance(entries, list):
+        raise ValueError("manifest root must be a list")
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            raise ValueError(f"manifest server {index} must be an object")
+        name = entry.get("name")
+        port = entry.get("port")
+        health_tool = entry.get("health_tool")
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"manifest server {index} has an invalid name")
+        if not isinstance(port, int) or not 1 <= port <= 65535:
+            raise ValueError(f"manifest server {index} has an invalid port")
+        if not isinstance(health_tool, str) or not health_tool:
+            raise ValueError(f"manifest server {index} has an invalid health_tool")
+
+
+def _print_summary(results, report_paths):
+    for result in results:
+        label = "PASS" if result.get("status") == "passed" else "FAIL"
+        detail = ""
+        if label == "FAIL":
+            detail = (
+                f" ({result.get('failed_stage', 'unknown')}: "
+                f"{result.get('error', 'unknown error')})"
+            )
+        print(f"[{label}] {result.get('name', '<unknown>')}{detail}")
+    passed = sum(result.get("status") == "passed" for result in results)
+    failed = len(results) - passed
+    print(f"{passed} passed, {failed} failed, {len(results)} total")
+    if report_paths:
+        print(f"JSON report: {report_paths[0]}")
+        print(f"Markdown report: {report_paths[1]}")
 
 
 def main(argv=None) -> int:
-    del argv
-    results = run_all(load_manifest(DEFAULT_MANIFEST), timeout=10)
-    return 0 if all(result["status"] == "passed" for result in results) else 1
+    args = _parse_args(argv)
+    try:
+        entries = load_manifest(args.manifest)
+        _validate_manifest(entries)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(f"Manifest error ({args.manifest}): {exc}", file=sys.stderr)
+        return 2
+
+    started_at = datetime.now(timezone.utc)
+    results = run_all(entries, timeout=args.timeout, host=args.host)
+    ended_at = datetime.now(timezone.utc)
+    report = build_report(results, started_at, ended_at)
+    try:
+        report_paths = write_reports(report, args.output_dir)
+    except OSError as exc:
+        _print_summary(results, None)
+        print(f"Report error: {exc}", file=sys.stderr)
+        return 2
+
+    _print_summary(results, report_paths)
+    return 0 if report["summary"]["failed"] == 0 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

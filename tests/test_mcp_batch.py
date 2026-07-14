@@ -3,6 +3,7 @@ import json
 import socket
 import threading
 import time
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -296,9 +297,10 @@ def test_load_manifest_reads_json_entries(tmp_path):
     assert load_engine().load_manifest(manifest) == entries
 
 
-def test_main_returns_success_for_default_manifest(fake_mcp_factory, tmp_path):
+def test_main_returns_success_and_writes_reports(fake_mcp_factory, tmp_path, capsys):
     server = fake_mcp_factory()
     manifest = tmp_path / "servers.json"
+    output_dir = tmp_path / "reports"
     manifest.write_text(
         json.dumps(
             [
@@ -312,16 +314,36 @@ def test_main_returns_success_for_default_manifest(fake_mcp_factory, tmp_path):
         encoding="utf-8",
     )
     module = load_engine()
-    module.DEFAULT_MANIFEST = manifest
 
-    assert module.main([]) == 0
+    exit_code = module.main(
+        [
+            "--manifest",
+            str(manifest),
+            "--output-dir",
+            str(output_dir),
+            "--timeout",
+            "2",
+        ]
+    )
+
+    assert exit_code == 0
+    assert len(list(output_dir.glob("mcp-test-*.json"))) == 1
+    assert len(list(output_dir.glob("mcp-test-*.md"))) == 1
+    stdout = capsys.readouterr().out
+    assert "[PASS] sample" in stdout
+    assert "1 passed, 0 failed, 1 total" in stdout
+    assert str(output_dir) in stdout
 
 
-def test_main_returns_failure_when_a_default_server_fails(tmp_path):
+def test_main_returns_failure_and_writes_partial_failure_reports(
+    fake_mcp_factory, tmp_path, capsys
+):
+    healthy = fake_mcp_factory()
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         unused_port = sock.getsockname()[1]
     manifest = tmp_path / "servers.json"
+    output_dir = tmp_path / "reports"
     manifest.write_text(
         json.dumps(
             [
@@ -329,15 +351,63 @@ def test_main_returns_failure_when_a_default_server_fails(tmp_path):
                     "name": "offline",
                     "port": unused_port,
                     "health_tool": "sample_health",
-                }
+                },
+                {
+                    "name": "healthy",
+                    "port": healthy.port,
+                    "health_tool": "sample_health",
+                },
             ]
         ),
         encoding="utf-8",
     )
     module = load_engine()
-    module.DEFAULT_MANIFEST = manifest
 
-    assert module.main([]) == 1
+    exit_code = module.main(
+        [
+            "--manifest",
+            str(manifest),
+            "--output-dir",
+            str(output_dir),
+            "--timeout",
+            "0.2",
+        ]
+    )
+
+    assert exit_code == 1
+    report = json.loads(next(output_dir.glob("mcp-test-*.json")).read_text())
+    assert report["summary"] == {"total": 2, "passed": 1, "failed": 1}
+    assert len(list(output_dir.glob("mcp-test-*.md"))) == 1
+    stdout = capsys.readouterr().out
+    assert "[FAIL] offline" in stdout
+    assert "[PASS] healthy" in stdout
+    assert "1 passed, 1 failed, 2 total" in stdout
+
+
+@pytest.mark.parametrize("contents", ["{not-json", '{"name": "not-a-list"}'])
+def test_main_returns_usage_error_for_malformed_manifest_without_network(
+    tmp_path, monkeypatch, capsys, contents
+):
+    manifest = tmp_path / "servers.json"
+    manifest.write_text(contents, encoding="utf-8")
+    module = load_engine()
+    called = False
+
+    def unexpected_run(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("run_all must not be called")
+
+    monkeypatch.setattr(module, "run_all", unexpected_run)
+
+    exit_code = module.main(
+        ["--manifest", str(manifest), "--output-dir", str(tmp_path / "reports")]
+    )
+
+    assert exit_code == 2
+    assert called is False
+    assert "manifest" in capsys.readouterr().err.lower()
+    assert not (tmp_path / "reports").exists()
 
 
 @pytest.mark.parametrize("mode", ["bad_json", "bad_sse", "http_error"])
@@ -468,3 +538,81 @@ def test_run_all_isolates_invalid_entry_metadata(fake_mcp_factory):
     assert [result["name"] for result in results] == ["invalid", "healthy"]
     assert [result["status"] for result in results] == ["failed", "passed"]
     assert results[0]["error"]
+
+
+def sample_report(module):
+    started_at = datetime(2026, 7, 15, 1, 2, 3, tzinfo=timezone.utc)
+    ended_at = datetime(2026, 7, 15, 1, 2, 5, 500000, tzinfo=timezone.utc)
+    results = [
+        {
+            "name": "healthy",
+            "status": "passed",
+            "tool_count": 2,
+            "tools": ["sample_health", "sample_info"],
+            "health": {
+                "content": [{"type": "text", "text": '{"ok": true}'}],
+                "raw_headers": {"Authorization": "secret"},
+            },
+            "duration_seconds": 0.25,
+            "raw_headers": {"Mcp-Session-Id": "secret"},
+        },
+        {
+            "name": "offline",
+            "status": "failed",
+            "failed_stage": "connect",
+            "error": "connection refused",
+            "duration_seconds": 0.1,
+        },
+    ]
+    return module.build_report(results, started_at, ended_at)
+
+
+def test_build_report_summarizes_results_and_runtime_metadata():
+    report = sample_report(load_engine())
+
+    assert report["started_at"] == "2026-07-15T01:02:03Z"
+    assert report["ended_at"] == "2026-07-15T01:02:05.500000Z"
+    assert report["duration_seconds"] == 2.5
+    assert report["summary"] == {"total": 2, "passed": 1, "failed": 1}
+    assert report["runtime"]["hostname"]
+    assert report["runtime"]["platform"]
+    assert report["runtime"]["python_version"]
+    assert report["servers"][0]["tools"] == ["sample_health", "sample_info"]
+    assert report["servers"][0]["health"]["content"][0]["type"] == "text"
+    assert report["servers"][1]["failed_stage"] == "connect"
+    assert report["servers"][1]["error"] == "connection refused"
+    assert "raw_headers" not in json.dumps(report)
+
+
+def test_write_reports_creates_paired_json_and_markdown(tmp_path):
+    module = load_engine()
+    report = sample_report(module)
+
+    json_path, markdown_path = module.write_reports(report, tmp_path)
+
+    assert json_path.parent == tmp_path
+    assert markdown_path.parent == tmp_path
+    assert json_path.stem == markdown_path.stem
+    assert json_path.name.startswith("mcp-test-20260715T010205Z")
+    assert json.loads(json_path.read_text(encoding="utf-8")) == report
+    markdown = markdown_path.read_text(encoding="utf-8")
+    assert "| Server | Status | Stage | Tools | Duration |" in markdown
+    assert "| healthy | PASS | - | 2 | 0.250s |" in markdown
+    assert "## Failure Details" in markdown
+    assert "offline" in markdown and "connection refused" in markdown
+    assert "## Health: healthy" in markdown
+    assert '```json\n{' in markdown
+    assert "raw_headers" not in markdown
+
+
+def test_write_reports_suffixes_filename_when_timestamp_collides(tmp_path):
+    module = load_engine()
+    report = sample_report(module)
+
+    first_json, first_markdown = module.write_reports(report, tmp_path)
+    second_json, second_markdown = module.write_reports(report, tmp_path)
+
+    assert first_json.exists() and first_markdown.exists()
+    assert second_json.name == "mcp-test-20260715T010205Z-1.json"
+    assert second_markdown.name == "mcp-test-20260715T010205Z-1.md"
+    assert second_json.exists() and second_markdown.exists()
