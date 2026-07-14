@@ -29,12 +29,51 @@ class FakeMcp:
         self.mode = mode
         self.methods = []
         self.session_headers = []
+        self.redirect_requests = []
+        self.target_requests = []
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):
                 length = int(self.headers.get("Content-Length", "0"))
-                request = json.loads(self.rfile.read(length))
+                raw_body = self.rfile.read(length)
+                exchange = {
+                    "method": self.command,
+                    "body": raw_body,
+                    "content_type": self.headers.get("Content-Type"),
+                    "accept": self.headers.get("Accept"),
+                    "session": self.headers.get("Mcp-Session-Id"),
+                }
+                if owner.mode == "redirect" and self.path == "/mcp":
+                    owner.redirect_requests.append(exchange)
+                    self.send_response(307)
+                    self.send_header("Location", "/mcp/")
+                    self.end_headers()
+                    return
+                if owner.mode == "redirect" and self.path == "/mcp/":
+                    owner.target_requests.append(exchange)
+                if owner.mode == "remote_redirect" and self.path == "/mcp":
+                    owner.redirect_requests.append(exchange)
+                    self.send_response(307)
+                    self.send_header("Location", "http://example.com/mcp")
+                    self.end_headers()
+                    return
+                if owner.mode == "redirect_loop":
+                    owner.redirect_requests.append(exchange)
+                    location = "/mcp/" if self.path == "/mcp" else "/mcp"
+                    self.send_response(308)
+                    self.send_header("Location", location)
+                    self.end_headers()
+                    return
+                if owner.mode == "redirect_chain":
+                    owner.redirect_requests.append(exchange)
+                    hop = 0 if self.path == "/mcp" else int(self.path.rsplit("/", 1)[1])
+                    self.send_response(307)
+                    self.send_header("Location", f"/hop/{hop + 1}")
+                    self.end_headers()
+                    return
+
+                request = json.loads(raw_body)
                 owner.methods.append(request["method"])
                 owner.session_headers.append(self.headers.get("Mcp-Session-Id"))
 
@@ -572,6 +611,47 @@ def test_server_accepts_valid_embedded_text_resource(fake_mcp_factory):
     resource = result["health"]["content"][0]["resource"]
     assert resource["uri"] == "file:///health.txt"
     assert resource["text"] == '{"ok": true}'
+
+
+def test_server_preserves_post_exchange_across_fastmcp_redirect(fake_mcp_factory):
+    server = fake_mcp_factory(mode="redirect")
+
+    result = load_engine().test_server(
+        {"name": "sample", "port": server.port, "health_tool": "sample_health"}, 2
+    )
+
+    assert result["status"] == "passed"
+    assert len(server.redirect_requests) == len(server.target_requests) == 4
+    for source, target in zip(server.redirect_requests, server.target_requests):
+        assert target == source
+        assert target["method"] == "POST"
+        assert target["content_type"] == "application/json"
+        assert target["accept"] == "application/json, text/event-stream"
+    assert [request["session"] for request in server.target_requests[1:]] == [
+        "test-session"
+    ] * 3
+
+
+@pytest.mark.parametrize(
+    "mode,error_text",
+    [
+        ("remote_redirect", "loopback"),
+        ("redirect_loop", "loop"),
+        ("redirect_chain", "too many"),
+    ],
+)
+def test_server_rejects_unsafe_or_unbounded_redirects(
+    fake_mcp_factory, mode, error_text
+):
+    server = fake_mcp_factory(mode=mode)
+
+    result = load_engine().test_server(
+        {"name": "sample", "port": server.port, "health_tool": "sample_health"}, 2
+    )
+
+    assert result["status"] == "failed"
+    assert result["stage"] == "initialize"
+    assert error_text in result["error"].lower()
 
 
 def test_server_selects_matching_response_from_complex_sse(fake_mcp_factory):

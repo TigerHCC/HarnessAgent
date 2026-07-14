@@ -1,4 +1,5 @@
 import argparse
+import ipaddress
 import json
 import math
 import platform
@@ -7,6 +8,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +16,7 @@ from pathlib import Path
 
 DEFAULT_MANIFEST = Path(__file__).resolve().parents[1] / "config" / "mcp_servers.json"
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "reports" / "mcp"
+MAX_REDIRECTS = 5
 
 
 class StageError(Exception):
@@ -102,6 +105,27 @@ def _decode_response(response, deadline, expected_id):
     return json.loads(body)
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _redirect_target(current_url, location):
+    if not location:
+        raise ValueError("redirect response lacks Location header")
+    target, _ = urllib.parse.urldefrag(urllib.parse.urljoin(current_url, location))
+    parsed = urllib.parse.urlsplit(target)
+    if parsed.scheme != "http" or parsed.username or parsed.password:
+        raise ValueError("redirect target must be a loopback HTTP URL")
+    try:
+        address = ipaddress.ip_address(parsed.hostname or "")
+    except ValueError as exc:
+        raise ValueError("redirect target must use a loopback IP address") from exc
+    if not address.is_loopback:
+        raise ValueError("redirect target must use a loopback IP address")
+    return target
+
+
 def _post(url, message, timeout, session_id=None, expect_response=True):
     deadline = time.monotonic() + timeout
     headers = {
@@ -110,20 +134,48 @@ def _post(url, message, timeout, session_id=None, expect_response=True):
     }
     if session_id:
         headers["Mcp-Session-Id"] = session_id
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(message).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=_remaining(deadline)) as response:
-        if not expect_response:
-            return None, response.headers.get("Mcp-Session-Id")
-        expected_id = message["id"]
-        return (
-            _decode_response(response, deadline, expected_id),
-            response.headers.get("Mcp-Session-Id"),
+    body = json.dumps(message).encode("utf-8")
+    current_url = url
+    visited = {current_url}
+    redirect_count = 0
+    opener = urllib.request.build_opener(_NoRedirectHandler())
+    while True:
+        request = urllib.request.Request(
+            current_url,
+            data=body,
+            headers=headers,
+            method="POST",
         )
+        try:
+            response = opener.open(request, timeout=_remaining(deadline))
+        except urllib.error.HTTPError as exc:
+            if exc.code not in {307, 308}:
+                raise
+            try:
+                target = _redirect_target(current_url, exc.headers.get("Location"))
+            finally:
+                exc.close()
+            if target in visited:
+                raise ValueError("redirect loop detected")
+            if redirect_count >= MAX_REDIRECTS:
+                raise ValueError(f"too many redirects (maximum {MAX_REDIRECTS})")
+            visited.add(target)
+            redirect_count += 1
+            current_url = target
+            continue
+        except urllib.error.URLError as exc:
+            if redirect_count:
+                raise OSError(f"redirect target request failed: {exc}") from exc
+            raise
+
+        with response:
+            if not expect_response:
+                return None, response.headers.get("Mcp-Session-Id")
+            expected_id = message["id"]
+            return (
+                _decode_response(response, deadline, expected_id),
+                response.headers.get("Mcp-Session-Id"),
+            )
 
 
 def _validate_health_content(content, stage):
