@@ -62,6 +62,13 @@ function Get-McpRegistry([string]$manifestPath) {
   if (@($out.name | Select-Object -Unique).Count -ne $out.Count) { throw "MCP manifest contains duplicate names" }
   if (@($out.port | Select-Object -Unique).Count -ne $out.Count) { throw "MCP manifest contains duplicate ports" }
   if (@($out.task | Select-Object -Unique).Count -ne $out.Count) { throw "MCP manifest contains duplicate tasks" }
+  $expectedPorts = @(8777..8790)
+  $actualPorts = @($out.port | Sort-Object)
+  $portDifference = @(Compare-Object -ReferenceObject $expectedPorts -DifferenceObject $actualPorts)
+  if ($out.Count -ne 14 -or $portDifference.Count) {
+    $foundPorts = if ($actualPorts.Count) { $actualPorts -join ", " } else { "none" }
+    throw "MCP manifest must contain exactly 14 entries on canonical ports 8777-8790; found $($out.Count) entries on ports: $foundPorts"
+  }
   return $out
 }
 

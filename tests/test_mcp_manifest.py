@@ -112,6 +112,30 @@ def test_watchdog_inventory_matches_manifest_without_probing():
     assert actual == expected
 
 
+def test_watchdog_rejects_truncated_manifest_without_probing():
+    with tempfile.TemporaryDirectory(dir=ROOT / "tests") as directory:
+        manifest = Path(directory) / "mcp_servers.json"
+        manifest.write_text(json.dumps(load_entries()[:1]), encoding="utf-8")
+        completed = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(ROOT / "tools" / "mcp_watchdog" / "mcp_watchdog.ps1"),
+                "-InventoryOnly",
+                "-ManifestPath",
+                str(manifest),
+            ],
+            capture_output=True,
+            text=True,
+        )
+    assert completed.returncode != 0
+    assert "exactly 14 entries" in completed.stderr
+    assert "8777-8790" in completed.stderr
+
+
 def test_markdown_destination_parser_supports_standard_syntax():
     text = "\n".join(
         [
