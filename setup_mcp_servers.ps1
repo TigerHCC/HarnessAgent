@@ -70,36 +70,30 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $mcpRoot = Join-Path $here "mcp"
 
 # --- MCP registry: name, dir, port, scheduled-task name, config description ---
-$MCPS = @(
-  @{ name="srum";     dir="windows_srum";     port=8777; task="SRUM-MCP";
-     desc="Windows SRUM + live system resource usage (CPU/mem/net/power) via local elevated MCP server (127.0.0.1:8777)" }
-  @{ name="eventlog"; dir="windows_eventlog"; port=8778; task="EventLog-MCP";
-     desc="Windows Event Log (system errors + user behavior) via local elevated MCP server (127.0.0.1:8778)" }
-  @{ name="crash";    dir="windows_crash";    port=8779; task="Crash-MCP";
-     desc="Windows crash/WER analysis (app crashes, hangs, BSOD bugchecks) via local elevated MCP server (127.0.0.1:8779)" }
-  @{ name="exec";     dir="windows_exec";     port=8780; task="Exec-MCP";
-     desc="Windows execution evidence (Prefetch/BAM/UserAssist/ShimCache + timeline) via local elevated MCP server (127.0.0.1:8780)" }
-  @{ name="drift";    dir="windows_drift";    port=8781; task="Drift-MCP";
-     desc="Windows config-drift (autoruns/services/programs/tasks snapshots + diff) via local elevated MCP server (127.0.0.1:8781)" }
-  @{ name="netconn";  dir="windows_netconn";  port=8782; task="Netconn-MCP";
-     desc="Windows live network connections + owning process/service + baseline diff via local elevated MCP server (127.0.0.1:8782)" }
-  @{ name="perfmon";  dir="windows_perfmon";  port=8783; task="Perfmon-MCP";
-     desc="Windows real-time performance counters (CPU/disk-latency/memory/pool via PDH) + baselines via local MCP server (127.0.0.1:8783)" }
-  @{ name="disk";     dir="windows_disk";     port=8784; task="Disk-MCP";
-     desc="Windows storage diagnostics (USN file-change journal + SMART health + volume state) via local elevated MCP server (127.0.0.1:8784)" }
-  @{ name="procinspect"; dir="windows_procinspect"; port=8785; task="Procinspect-MCP";
-     desc="Windows process inspection (who-locks-a-file, hang/deadlock wait chains, loaded modules, handle-leak view) via local MCP server (127.0.0.1:8785)" }
-  @{ name="memstate";  dir="windows_memstate";  port=8786; task="Memstate-MCP";
-     desc="Windows memory attribution (pool tags / physical-memory composition / kernel-pool leak hunt) via local elevated MCP server (127.0.0.1:8786)" }
-  @{ name="filterstack"; dir="windows_filterstack"; port=8787; task="Filterstack-MCP";
-     desc="Windows filter-stack map (filesystem minifilters + NDIS/Winsock network filters + altitude classification) via local elevated MCP server (127.0.0.1:8787)" }
-  @{ name="winupdate";  dir="windows_winupdate";  port=8788; task="Winupdate-MCP";
-     desc="Windows Update history + failure HRESULTs + pending-reboot state via local MCP server (127.0.0.1:8788)" }
-  @{ name="dtmsdk";  dir="dtm_sdk";  port=8789; task="DtmSdk-MCP";
-     desc="DTM Sample/SDK utilities (DTP client SDK CLI wrappers: instrumentation/analytics/transmission/DTM/platinum) via local elevated MCP server (127.0.0.1:8789). NOT read-only -- can transmit telemetry + change DTP config; gated by per-command confirmation." }
-  @{ name="obsidian"; dir="windows_obsidian"; port=8790; task="Obsidian-MCP"; runlevel="Limited";
-     desc="Obsidian vault access (read/search/link-graph/tags/frontmatter + gated create/update of markdown notes) via local MCP server (127.0.0.1:8790). Runs UNELEVATED; writes are per-note confirmation-gated." }
-)
+$manifestPath = Join-Path $here "config\mcp_servers.json"
+if (-not (Test-Path -LiteralPath $manifestPath)) { Die "MCP manifest not found: $manifestPath" }
+try { $manifestEntries = @(Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json) }
+catch { Die "Invalid MCP manifest JSON: $_" }
+if ($manifestEntries.Count -ne 14) { Die "MCP manifest must contain 14 entries; found $($manifestEntries.Count)." }
+
+$MCPS = New-Object System.Collections.ArrayList
+$seenNames = @{}
+$seenPorts = @{}
+foreach ($entry in $manifestEntries) {
+  foreach ($field in @("name","directory","port","task","run_level","description","health_tool")) {
+    if ($null -eq $entry.$field -or [string]::IsNullOrWhiteSpace([string]$entry.$field)) {
+      Die "MCP manifest entry is missing '$field'."
+    }
+  }
+  if ($seenNames.ContainsKey($entry.name)) { Die "Duplicate MCP name: $($entry.name)" }
+  if ($seenPorts.ContainsKey([int]$entry.port)) { Die "Duplicate MCP port: $($entry.port)" }
+  if ($entry.run_level -notin @("Highest","Limited")) { Die "Invalid run_level for $($entry.name): $($entry.run_level)" }
+  $seenNames[$entry.name] = $true
+  $seenPorts[[int]$entry.port] = $true
+  [void]$MCPS.Add(@{ name=[string]$entry.name; dir=[string]$entry.directory; port=[int]$entry.port;
+    task=[string]$entry.task; runlevel=[string]$entry.run_level; desc=[string]$entry.description;
+    health_tool=[string]$entry.health_tool })
+}
 
 $mode = if ($Uninstall) { "UNINSTALL" } else { "setup" }
 Write-Host "=== HarnessAgent MCP servers $mode (14: 12 diagnostic + dtmsdk + obsidian) ===" -ForegroundColor Magenta
