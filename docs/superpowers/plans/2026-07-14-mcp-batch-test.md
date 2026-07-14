@@ -454,10 +454,21 @@ Expected: all focused tests pass with no unexpected warnings.
 
 - [ ] **Step 2: Run all existing repository Python tests**
 
-Run each suite from the repository root so a failure is attributable to its component:
+Run each suite in a separate Python process from that component's directory. The existing
+tests import sibling modules by name and reuse test filenames, so combining directories in
+one pytest process causes false import-mismatch failures. Use a writable repository-local
+temporary directory in restricted environments:
 
 ```powershell
-python -m pytest goose_web/tests mcp/windows_srum/tests mcp/windows_eventlog/tests mcp/windows_crash/tests mcp/windows_exec/tests mcp/windows_drift/tests mcp/windows_netconn/tests mcp/windows_perfmon/tests mcp/windows_disk/tests mcp/windows_procinspect/tests mcp/windows_memstate/tests mcp/windows_filterstack/tests mcp/windows_winupdate/tests mcp/dtm_sdk/tests mcp/windows_obsidian/tests -v
+$env:TEMP = Join-Path (git rev-parse --show-toplevel) '.test-tmp'
+$env:TMP = $env:TEMP
+New-Item -ItemType Directory -Force $env:TEMP | Out-Null
+$dirs = @('goose_web','mcp/windows_srum','mcp/windows_eventlog','mcp/windows_crash','mcp/windows_exec','mcp/windows_drift','mcp/windows_netconn','mcp/windows_perfmon','mcp/windows_disk','mcp/windows_procinspect','mcp/windows_memstate','mcp/windows_filterstack','mcp/windows_winupdate','mcp/dtm_sdk','mcp/windows_obsidian')
+foreach ($dir in $dirs) {
+  Push-Location $dir
+  try { python -m pytest -q tests; if ($LASTEXITCODE -ne 0) { throw "Tests failed: $dir" } }
+  finally { Pop-Location }
+}
 ```
 
 Expected: all environment-independent tests pass; explicitly report skips and any live-only environmental failures.
