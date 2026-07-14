@@ -1,3 +1,4 @@
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -51,3 +52,44 @@ def test_wrapper_passes_arguments_and_preserves_python_failure(tmp_path):
     assert "manifest" in output.lower()
     assert str(missing_manifest) in output
     assert not output_dir.exists()
+
+
+@pytest.mark.skipif(not POWERSHELL, reason="PowerShell unavailable")
+def test_wrapper_defaults_resolve_relative_to_script_root(tmp_path):
+    wrapper = tmp_path / "test_mcp_servers.ps1"
+    shutil.copy2(WRAPPER, wrapper)
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir()
+    engine = scripts_dir / "test_mcp_servers.py"
+    engine.write_text(
+        "import json, sys\nprint(json.dumps(sys.argv[1:]))\nraise SystemExit(7)\n",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(wrapper),
+            "-TimeoutSeconds",
+            "15",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+
+    assert completed.returncode == 7, completed.stderr
+    arguments = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert Path(arguments[arguments.index("--manifest") + 1]) == (
+        tmp_path / "config" / "mcp_servers.json"
+    )
+    assert Path(arguments[arguments.index("--output-dir") + 1]) == (
+        tmp_path / "reports" / "mcp"
+    )
+    assert arguments[arguments.index("--timeout") + 1] == "15"
