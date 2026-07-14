@@ -16,8 +16,9 @@ watchdog makes that recovery automatic.
 ## What it does
 
 `mcp_watchdog.ps1` runs one pass:
-1. Derives the port → Scheduled-Task map from `setup_mcp_servers.ps1`'s `$MCPS` (single source of truth
-   — never drifts from the installed set).
+1. Loads and validates all 14 names, ports, and Scheduled Task names from
+   [`../../config/mcp_servers.json`](../../config/mcp_servers.json), the same manifest consumed by
+   `setup_mcp_servers.ps1`.
 2. Probes each server with a cheap **raw HTTP `GET /mcp`** (a healthy endpoint answers `400`/`406`
    instantly; a wedged one times out). Raw HTTP — not a full MCP handshake — so the watchdog is light
    and doesn't itself hammer the servers.
@@ -48,6 +49,8 @@ The one-click `..\..\setup_mcp_servers.ps1` installs the watchdog by default (op
 ## Notes
 
 - A `-DryRun` pass is the quickest way to see which servers are answering right now.
+- `-InventoryOnly` validates the manifest and emits its `name`/`port`/`task` inventory as JSON without
+  probing, killing, or restarting anything.
 - If a server is repeatedly restarted (check `watchdog.log`), that server has a real bug — the watchdog
   is a safety net, not a substitute for fixing the wedge. See `docs/HARDENING_BACKLOG.md`.
 - The probe is raw HTTP so it can't detect a server that answers raw HTTP but wedges only the MCP

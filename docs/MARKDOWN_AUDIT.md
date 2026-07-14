@@ -13,10 +13,15 @@ generated/vendor reference.
   unelevated client, default `reports/mcp/` artifacts, exit codes 0/1/2, and degraded health versus
   transport/protocol/tool-call failure.
 - The link-check RED run found one real broken link: `docs/install_results.md` referenced the removed
-  root `docker-compose.yaml`. It now targets `config/docker-compose.yaml`.
+  root `docker-compose.yaml`. It now targets `config/docker-compose.yaml`. Focused parser coverage now
+  includes angle-bracket destinations with spaces/titles, encoded paths, and brace/angle-containing
+  missing paths rather than broadly excluding those characters.
+- The watchdog audit found a broken current workflow: it still regex-parsed the setup script after
+  setup moved to the JSON manifest, producing zero targets. It now validates
+  `config/mcp_servers.json`, covers all 14 servers, and has a non-probing inventory test mode.
 - Apparent links inside fenced and inline code are examples, not Markdown links; the checker ignores
-  those syntactic regions. HTTP, mail, same-document anchors, and explicit `<placeholder>` or
-  `{placeholder}` targets are also outside local-file validation.
+  those syntactic regions. HTTP, mail, same-document anchors, and exact `{placeholder}` targets are
+  outside local-file validation; angle brackets are parsed as standard Markdown destination syntax.
 - Dated plans, specs, spike notes, and results retain authored-at-the-time counts and decisions.
   They are classified as historical rather than rewritten as current operations. In particular,
   `docs/superpowers/plans/2026-07-14-mcp-batch-test.md` was inventoried but not modified.
@@ -41,8 +46,8 @@ generated/vendor reference.
   from 12 to 14 and protocol batch verification replaced setup reruns as the verification path.
 - `docs/windows-diagnostic-mcp-candidates.md` - Current roadmap for twelve diagnostic MCPs; its scope
   intentionally excludes `dtmsdk` and `obsidian`, so no rewrite was needed.
-- `goose_web/README.md` - Current browser UI reference; reviewed MCP toggle/health claims and found no
-  concrete broken link or full-suite count requiring change.
+- `goose_web/README.md` - Current browser UI reference; toggle scope was corrected from twelve
+  diagnostics to all 14 loopback local MCPs, including `dtmsdk` and `obsidian`.
 - `mcp/README.md` - Central MCP reference; setup wording now covers all 14 and central batch-test
   instructions link the manifest and architecture.
 - `mcp/dtm_sdk/README.md` - Current `dtmsdk` operations; added a backlink to central batch testing.
@@ -59,8 +64,8 @@ generated/vendor reference.
 - `mcp/windows_procinspect/README.md` - Current process MCP usage; added a central batch-test backlink.
 - `mcp/windows_srum/README.md` - Current SRUM MCP usage; added a central batch-test backlink.
 - `mcp/windows_winupdate/README.md` - Current Windows Update MCP usage; added a central batch-test backlink.
-- `tools/mcp_watchdog/README.md` - Current optional watchdog reference for twelve diagnostic processes;
-  its deliberately narrower supported set is not a full-suite inventory claim.
+- `tools/mcp_watchdog/README.md` - Current optional watchdog reference; its stale setup-script registry
+  claim exposed a zero-target workflow and was corrected to the validated 14-entry JSON manifest.
 - `tools/sysmon/README.md` - Current optional Sysmon integration for Event Log; no stale local link,
   count, or batch command was found.
 

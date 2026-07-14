@@ -14,12 +14,12 @@
   restarted: kill the owning PID (if any) + Start-ScheduledTask for its task. One pass per invocation;
   install_watchdog.ps1 schedules it to run every few minutes.
 
-  The port -> task map is derived from setup_mcp_servers.ps1's $MCPS array (single source of truth), so
-  it never drifts from the installed set.
+  The name/port/task inventory is loaded from config/mcp_servers.json, the same manifest used by setup.
 
 .PARAMETER DryRun     Probe and report only; never kill/restart. Safe to run anytime.
 .PARAMETER TimeoutSec Per-probe timeout (default 6). No answer within this -> treated as wedged.
-.PARAMETER SetupPath  Override the path to setup_mcp_servers.ps1 (default: repo root).
+.PARAMETER ManifestPath Override config/mcp_servers.json (default: repo root config).
+.PARAMETER InventoryOnly Validate the manifest and emit name/port/task JSON without probing or restarting.
 .PARAMETER LogPath    Override the log file (default: tools\mcp_watchdog\watchdog.log).
 
 .EXAMPLE
@@ -30,26 +30,38 @@
 [CmdletBinding()]
 param(
   [switch]$DryRun,
+  [switch]$InventoryOnly,
   [int]$TimeoutSec = 6,
-  [string]$SetupPath,
+  [string]$ManifestPath,
   [string]$LogPath
 )
 
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-if (-not $SetupPath) { $SetupPath = Join-Path (Split-Path -Parent $here) "..\setup_mcp_servers.ps1" }
+if (-not $ManifestPath) { $ManifestPath = Join-Path (Split-Path -Parent $here) "..\config\mcp_servers.json" }
 if (-not $LogPath)   { $LogPath   = Join-Path $here "watchdog.log" }
 
-# --- derive port -> task map from setup_mcp_servers.ps1's $MCPS (single source of truth) ---
-function Get-McpRegistry([string]$setupPath) {
-  if (-not (Test-Path $setupPath)) { throw "setup_mcp_servers.ps1 not found at $setupPath" }
-  $text = Get-Content -Raw -LiteralPath $setupPath
-  $re = [regex]'name="(?<name>[^"]+)";\s*dir="(?<dir>[^"]+)";\s*port=(?<port>\d+);\s*task="(?<task>[^"]+)"'
-  $out = @()
-  foreach ($m in $re.Matches($text)) {
-    $out += [pscustomobject]@{ name=$m.Groups['name'].Value; dir=$m.Groups['dir'].Value
-                               port=[int]$m.Groups['port'].Value; task=$m.Groups['task'].Value }
+# --- load the same validated manifest inventory used by setup_mcp_servers.ps1 ---
+function Get-McpRegistry([string]$manifestPath) {
+  if (-not (Test-Path -LiteralPath $manifestPath)) { throw "MCP manifest not found at $manifestPath" }
+  try {
+    $decoded = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+    $entries = @($decoded | ForEach-Object { $_ })
   }
+  catch { throw "Invalid MCP manifest at ${manifestPath}: $_" }
+  if (-not $entries.Count) { throw "MCP manifest has no entries: $manifestPath" }
+  $out = @()
+  foreach ($entry in $entries) {
+    if ([string]::IsNullOrWhiteSpace([string]$entry.name) -or
+        [string]::IsNullOrWhiteSpace([string]$entry.task) -or
+        $null -eq $entry.port -or [int]$entry.port -lt 1 -or [int]$entry.port -gt 65535) {
+      throw "MCP manifest entry requires non-empty name/task and port 1-65535"
+    }
+    $out += [pscustomobject]@{ name=[string]$entry.name; port=[int]$entry.port; task=[string]$entry.task }
+  }
+  if (@($out.name | Select-Object -Unique).Count -ne $out.Count) { throw "MCP manifest contains duplicate names" }
+  if (@($out.port | Select-Object -Unique).Count -ne $out.Count) { throw "MCP manifest contains duplicate ports" }
+  if (@($out.task | Select-Object -Unique).Count -ne $out.Count) { throw "MCP manifest contains duplicate tasks" }
   return $out
 }
 
@@ -88,7 +100,11 @@ function Restart-Mcp($entry) {
 }
 
 # --- main pass ---
-$registry = Get-McpRegistry $SetupPath
+$registry = @(Get-McpRegistry $ManifestPath)
+if ($InventoryOnly) {
+  ConvertTo-Json -InputObject @($registry) -Depth 3
+  exit 0
+}
 $wedged = @()
 $report = @()
 foreach ($m in $registry) {

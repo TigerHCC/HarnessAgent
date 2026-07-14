@@ -180,10 +180,11 @@ UserAssist and `drift`'s HKCU autoruns read the **current user's** registry hive
 would report on SYSTEM's hive instead of yours.
 
 > **Security note:** the servers bind `127.0.0.1` with **no authentication**. Any process on this box —
-> including unprivileged ones — can call them and read data that would normally require admin. Everything
-> is read-only, so this is information disclosure, not privilege escalation, but it is effectively a
-> UAC-free read-only window onto admin-level data. Fine for a single-user diagnostic box; do not run this
-> suite on a machine with untrusted local users.
+> including unprivileged ones — can call them. The twelve diagnostic servers are read-only, making their
+> elevated data an information-disclosure concern. `dtmsdk` and `obsidian` also expose write-capable tools
+> behind per-command confirmation gates; those gates are part of their safety boundary, not a reason to
+> treat the full suite as read-only. This loopback API is therefore appropriate only on a trusted,
+> single-user diagnostic box; do not run it on a machine with untrusted local users.
 
 **Turning servers on and off at runtime:** goose_web's sidebar has a per-MCP toggle for all 14 local MCPs
 (it flips `enabled:` in `config.yaml`, which the next `goose run` re-reads — no restart). See
