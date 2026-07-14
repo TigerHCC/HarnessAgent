@@ -9,3 +9,6 @@ __pycache__/
 
 # goose_web runtime artifacts (workspace/.goose/memory is tracked deliberately)
 workspace/uploads/
+
+# Isolated implementation worktrees
+.worktrees/
