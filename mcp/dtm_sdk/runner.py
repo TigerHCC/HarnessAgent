@@ -38,6 +38,22 @@ def parse_output(text):
     return text, "text"
 
 
+def _kill_tree(proc):
+    # Kill the WHOLE process tree so no surviving grandchild keeps the stdout pipe open. This is the
+    # key defense: subprocess.run's own timeout path, after killing only the direct child, drains the
+    # pipe with an UNTIMED communicate() -- which blocks forever if a grandchild still holds the pipe
+    # write-end (the observed dtmsdk wedge). taskkill /T kills descendants and guarantees pipe EOF.
+    try:
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                       capture_output=True, timeout=10)
+    except Exception:
+        pass
+    try:
+        proc.kill()
+    except Exception:
+        pass
+
+
 def run(exe, command, args, *, timeout, json_flag, env_json):
     argv = build_argv(exe, command, args, json_flag=json_flag)
     env = dict(os.environ)
@@ -46,19 +62,23 @@ def run(exe, command, args, *, timeout, json_flag, env_json):
         env["DTPUTIL_JSON_OUTPUT"] = "true"
     start = time.monotonic()
     timed_out = False
+    # Popen + communicate(timeout=) rather than subprocess.run(timeout=), so on timeout we control the
+    # cleanup: kill the whole tree, then drain with a BOUNDED communicate so this never blocks forever.
+    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, encoding="utf-8", errors="replace", env=env)
     try:
-        proc = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", timeout=timeout, env=env)
-        out, err, code = proc.stdout, proc.stderr, proc.returncode
-    except subprocess.TimeoutExpired as e:
+        out, err = proc.communicate(timeout=timeout)
+        code = proc.returncode
+    except subprocess.TimeoutExpired:
         timed_out = True
-        out = e.stdout or ""
-        if isinstance(out, bytes):
-            out = out.decode("utf-8", "replace")
-        err = e.stderr or ""
-        if isinstance(err, bytes):
-            err = err.decode("utf-8", "replace")
         code = -1
+        _kill_tree(proc)
+        try:
+            out, err = proc.communicate(timeout=10)   # bounded: never an untimed drain
+        except subprocess.TimeoutExpired:
+            out, err = "", ""
+    out = out or ""
+    err = err or ""
     dur = round(time.monotonic() - start, 3)
     parsed, fmt = parse_output(out)
     return {

@@ -1,4 +1,6 @@
 # mcp/dtm_sdk/tests/test_server.py
+import asyncio
+import inspect
 import time
 import dtm_sdk_mcp_server as srv
 
@@ -121,3 +123,26 @@ def test_health_shape(monkeypatch):
     h = srv.dtm_health()
     for k in ("is_admin", "dell_techhub", "executables", "datatype_tables", "howto"):
         assert k in h
+
+
+def test_run_tools_are_async(monkeypatch):
+    # The 5 subprocess-spawning tools MUST be async (offloaded off the event loop) so a blocking util
+    # can never freeze the whole server. dtm_health + the lookup tools stay sync (fast, no util).
+    for name in ("dtm_run_dtmutil", "dtm_run_instrumentation", "dtm_run_analytics",
+                 "dtm_run_transmission", "dtm_run_platinum"):
+        assert inspect.iscoroutinefunction(getattr(srv, name)), name + " must be async"
+    assert not inspect.iscoroutinefunction(srv.dtm_health)
+
+
+def test_async_run_tool_offloads_and_returns(monkeypatch):
+    _patch(monkeypatch)
+    r = asyncio.run(srv.dtm_run_instrumentation("metadata", [], ""))
+    assert r["ok"] is True and r["parsed"]["ran"] is True
+
+
+def test_expired_tokens_are_pruned(monkeypatch):
+    _patch(monkeypatch)
+    # seed an ancient token, then issue a fresh preview -> the stale one must be pruned
+    srv._TOKENS["stale"] = ("transmission", "collect-transmit", ["x"], time.time() - 9999)
+    srv._dispatch("transmission", "collect-transmit", ["--datatype-name", "X"], "")
+    assert "stale" not in srv._TOKENS

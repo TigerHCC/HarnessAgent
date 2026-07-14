@@ -1,9 +1,11 @@
 import os
 import sys
+import time
 import runner
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FAKE = os.path.join(HERE, "fake_util.py")
+HANG = os.path.join(HERE, "hang_util.py")
 
 
 def _run(command, args, **kw):
@@ -60,3 +62,15 @@ def test_timeout_returns_partial_not_exception():
     r = _run("metadata", ["--emit", "json", "--sleep", "3"], timeout=1)
     assert r["timed_out"] is True
     assert r["ok"] is False
+
+
+def test_timeout_with_pipe_holding_grandchild_does_not_block_forever():
+    # Regression for the dtmsdk wedge: the util spawns a grandchild that inherits stdout and lives on.
+    # Without the kill-tree + bounded-drain fix, runner.run's post-timeout untimed communicate() would
+    # block FOREVER on the never-closing pipe (freezing the whole event loop). With the fix it must
+    # return promptly with timed_out=True. Assert a hard wall-clock bound so a regression HANGS the test.
+    start = time.monotonic()
+    r = runner.run([sys.executable, HANG], "", [], timeout=2, json_flag=False, env_json=False)
+    elapsed = time.monotonic() - start
+    assert r["timed_out"] is True
+    assert elapsed < 25, "runner blocked %.1fs on a pipe-holding grandchild (kill-tree/drain regressed)" % elapsed

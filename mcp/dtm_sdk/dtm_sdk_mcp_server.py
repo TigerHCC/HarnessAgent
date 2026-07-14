@@ -10,6 +10,7 @@ import subprocess
 import time
 from typing import List
 
+import anyio
 from mcp.server.fastmcp import FastMCP
 
 import config
@@ -24,6 +25,7 @@ _CFG = None            # lazily loaded so an import never fails on a bad config
 _TABLES = {}           # kind -> rows
 _HOWTO_TEXT = None
 _TOKENS = {}           # token -> (util, command, args, issued_at)
+_UTIL_LIMITER = anyio.CapacityLimiter(8)   # cap concurrent util worker threads
 
 # Utils that share DtpUtilHelper: request JSON output via the DTPUTIL_JSON_OUTPUT env var.
 # NOT via a --json CLI flag -- the real utils reject --json as a per-subcommand argument
@@ -135,6 +137,9 @@ def _dispatch(util, command, args, confirm_token):
             else:
                 confirm_token = ""           # fall through to re-issue a preview
         if not confirm_token:
+            # prune expired tokens so abandoned previews can't accumulate unbounded
+            for t in [t for t, r in _TOKENS.items() if now - r[3] > policy.TOKEN_TTL_SECONDS]:
+                _TOKENS.pop(t, None)
             token = policy.make_token(util, command, args)
             _TOKENS[token] = (util, command, args, now)
             reasons = {"egress": "transmits data from this machine to Dell",
@@ -207,39 +212,48 @@ def dtm_health() -> dict:
 
 
 # ---- execution tools (one per util) --------------------------------------
+# These spawn external DTP utils (blocking subprocesses). FastMCP runs a sync tool INLINE on the single
+# asyncio event loop, so a blocking util would freeze the whole server (the observed dtmsdk wedge).
+# Make them async and run the blocking body in a worker thread (bounded pool) so the event loop stays
+# free and a pathological hang leaks one thread instead of the whole server.
+async def _run_async(util, command, args, confirm_token):
+    return await anyio.to_thread.run_sync(_dispatch, util, command, list(args or []), confirm_token,
+                                          limiter=_UTIL_LIMITER)
+
+
 @mcp.tool()
-def dtm_run_dtmutil(command: str, args: List[str] = [], confirm_token: str = "") -> dict:
+async def dtm_run_dtmutil(command: str, args: List[str] = [], confirm_token: str = "") -> dict:
     """Run DTMUtil (IDtmClientSdk: orchestrator config, workflows, bundle transmission). Safe commands
     run directly; others return a confirm_token you must pass back. See dtm_help('dtmutil')."""
-    return _dispatch("dtmutil", command, args, confirm_token)
+    return await _run_async("dtmutil", command, args, confirm_token)
 
 
 @mcp.tool()
-def dtm_run_instrumentation(command: str, args: List[str] = [], confirm_token: str = "") -> dict:
+async def dtm_run_instrumentation(command: str, args: List[str] = [], confirm_token: str = "") -> dict:
     """Run DtpInstrumentationUtil (data collection/retrieval, commodities, datatype state). Safe
     commands run directly; others need a confirm_token. See dtm_help('instrumentation')."""
-    return _dispatch("instrumentation", command, args, confirm_token)
+    return await _run_async("instrumentation", command, args, confirm_token)
 
 
 @mcp.tool()
-def dtm_run_analytics(command: str, args: List[str] = [], confirm_token: str = "") -> dict:
+async def dtm_run_analytics(command: str, args: List[str] = [], confirm_token: str = "") -> dict:
     """Run DtpAnalyticsUtil (analysis, alerts, subscriptions, retrieval). Safe commands run directly;
     others need a confirm_token. See dtm_help('analytics')."""
-    return _dispatch("analytics", command, args, confirm_token)
+    return await _run_async("analytics", command, args, confirm_token)
 
 
 @mcp.tool()
-def dtm_run_transmission(command: str, args: List[str] = [], confirm_token: str = "") -> dict:
+async def dtm_run_transmission(command: str, args: List[str] = [], confirm_token: str = "") -> dict:
     """Run DtpTransmissionUtil (collect+transmit, retrieve+transmit, file upload). Almost everything
     here transmits data to Dell and needs a confirm_token. See dtm_help('transmission')."""
-    return _dispatch("transmission", command, args, confirm_token)
+    return await _run_async("transmission", command, args, confirm_token)
 
 
 @mcp.tool()
-def dtm_run_platinum(command: str, args: List[str] = [], confirm_token: str = "") -> dict:
+async def dtm_run_platinum(command: str, args: List[str] = [], confirm_token: str = "") -> dict:
     """Run DTMPlatinumUtil (Platinum event logging, upload, heartbeat/ping). Most commands contact
     Dell and need a confirm_token. See dtm_help('platinum')."""
-    return _dispatch("platinum", command, args, confirm_token)
+    return await _run_async("platinum", command, args, confirm_token)
 
 
 if __name__ == "__main__":
