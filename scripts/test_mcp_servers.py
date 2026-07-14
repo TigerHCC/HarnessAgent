@@ -174,6 +174,7 @@ def _server_record(
         "stage": stage,
         "duration_seconds": duration,
         "tools": tools,
+        "tool_count": len(tools),
         "health": health,
         "error": error,
     }
@@ -433,23 +434,18 @@ def _reserve_report_paths(output_dir, base):
         candidate = base if suffix == 0 else f"{base}-{suffix}"
         json_path = output_dir / f"{candidate}.json"
         markdown_path = output_dir / f"{candidate}.md"
+        reservation_path = output_dir / f".{candidate}.lock"
         try:
-            with json_path.open("x", encoding="utf-8"):
+            with reservation_path.open("x", encoding="utf-8"):
                 pass
         except FileExistsError:
             suffix += 1
             continue
-        try:
-            with markdown_path.open("x", encoding="utf-8"):
-                pass
-        except FileExistsError:
-            json_path.unlink(missing_ok=True)
+        if json_path.exists() or markdown_path.exists():
+            reservation_path.unlink(missing_ok=True)
             suffix += 1
             continue
-        except Exception:
-            json_path.unlink(missing_ok=True)
-            raise
-        return json_path, markdown_path
+        return json_path, markdown_path, reservation_path
 
 
 def write_reports(report, output_dir):
@@ -460,7 +456,7 @@ def write_reports(report, output_dir):
     ended_at = datetime.fromisoformat(report["ended_at"].replace("Z", "+00:00"))
     timestamp = ended_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     base = f"mcp-test-{timestamp}"
-    json_path, markdown_path = _reserve_report_paths(output_dir, base)
+    json_path, markdown_path, reservation_path = _reserve_report_paths(output_dir, base)
     temporary_paths = []
     try:
         temporary_paths.append(_write_temporary_sibling(json_path, json_content))
@@ -475,6 +471,8 @@ def write_reports(report, output_dir):
         json_path.unlink(missing_ok=True)
         markdown_path.unlink(missing_ok=True)
         raise
+    finally:
+        reservation_path.unlink(missing_ok=True)
     return json_path, markdown_path
 
 

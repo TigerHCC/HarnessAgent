@@ -628,6 +628,7 @@ def sample_report(module):
             "status": "passed",
             "stage": "health_call",
             "tools": ["sample_health", "sample_info"],
+            "tool_count": 2,
             "health": {
                 "content": [{"type": "text", "text": '{"ok": true}'}],
                 "raw_headers": {"Authorization": "secret"},
@@ -645,6 +646,7 @@ def sample_report(module):
             "stage": "connect",
             "error": "connection refused",
             "tools": [],
+            "tool_count": 0,
             "health": None,
             "duration_seconds": 0.1,
         },
@@ -709,6 +711,7 @@ def test_report_schema_normalizes_passed_and_failed_servers(fake_mcp_factory):
         "stage",
         "duration_seconds",
         "tools",
+        "tool_count",
         "health",
         "error",
     }
@@ -720,6 +723,7 @@ def test_report_schema_normalizes_passed_and_failed_servers(fake_mcp_factory):
     assert passed["status"] == "passed"
     assert passed["stage"] == "health_call"
     assert passed["tools"] == ["sample_health"]
+    assert passed["tool_count"] == 1
     assert passed["health"]["content"]
     assert passed["error"] is None
     assert failed["port"] == unused_port
@@ -728,6 +732,7 @@ def test_report_schema_normalizes_passed_and_failed_servers(fake_mcp_factory):
     assert failed["status"] == "failed"
     assert failed["stage"] == "connect"
     assert failed["tools"] == []
+    assert failed["tool_count"] == 0
     assert failed["health"] is None
     assert failed["error"]
 
@@ -772,19 +777,14 @@ def test_write_reports_reserves_colliding_names_across_concurrent_writers(
     module = load_engine()
     report = sample_report(module)
     barrier = threading.Barrier(2)
-    original_exists = Path.exists
-    first_names = {
-        "mcp-test-20260715T010205Z.json",
-        "mcp-test-20260715T010205Z.md",
-    }
+    original_write_temporary = module._write_temporary_sibling
 
-    def synchronized_exists(path):
-        exists = original_exists(path)
-        if path.parent == tmp_path and path.name in first_names and not exists:
+    def synchronized_write(path, content):
+        if path.suffix == ".json":
             barrier.wait(timeout=5)
-        return exists
+        return original_write_temporary(path, content)
 
-    monkeypatch.setattr(Path, "exists", synchronized_exists)
+    monkeypatch.setattr(module, "_write_temporary_sibling", synchronized_write)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = [executor.submit(module.write_reports, report, tmp_path) for _ in range(2)]
@@ -794,6 +794,36 @@ def test_write_reports_reserves_colliding_names_across_concurrent_writers(
     assert pairs[0][1] != pairs[1][1]
     assert len(list(tmp_path.glob("mcp-test-*.json"))) == 2
     assert len(list(tmp_path.glob("mcp-test-*.md"))) == 2
+
+
+def test_write_reports_does_not_expose_final_paths_while_reserved(
+    tmp_path, monkeypatch
+):
+    module = load_engine()
+    report = sample_report(module)
+    writer_entered = threading.Event()
+    release_writer = threading.Event()
+
+    def pause_then_fail(path, content):
+        writer_entered.set()
+        if not release_writer.wait(timeout=5):
+            raise TimeoutError("test did not release writer")
+        raise OSError("injected write failure after reservation")
+
+    monkeypatch.setattr(module, "_write_temporary_sibling", pause_then_fail)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(module.write_reports, report, tmp_path)
+        assert writer_entered.wait(timeout=5)
+        try:
+            assert list(tmp_path.glob("mcp-test-*.json")) == []
+            assert list(tmp_path.glob("mcp-test-*.md")) == []
+        finally:
+            release_writer.set()
+        with pytest.raises(OSError, match="after reservation"):
+            future.result(timeout=5)
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_write_reports_cleans_pair_when_second_publish_fails(tmp_path, monkeypatch):
