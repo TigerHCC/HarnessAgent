@@ -131,8 +131,21 @@ def _validate_health_content(content, stage):
             isinstance(item.get(field), str) for field in ("data", "mimeType")
         ):
             continue
-        if content_type == "resource" and isinstance(item.get("resource"), dict):
-            continue
+        if content_type == "resource":
+            resource = item.get("resource")
+            if isinstance(resource, dict):
+                uri = resource.get("uri")
+                has_body = isinstance(resource.get("text"), str) or isinstance(
+                    resource.get("blob"), str
+                )
+                mime_type = resource.get("mimeType")
+                if (
+                    isinstance(uri, str)
+                    and uri
+                    and has_body
+                    and (mime_type is None or isinstance(mime_type, str))
+                ):
+                    continue
         raise StageError(stage, f"malformed health content item: {content_type!r}")
 
 

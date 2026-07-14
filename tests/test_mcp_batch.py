@@ -98,6 +98,47 @@ class FakeMcp:
                     response["result"] = {"content": [{}]}
                 elif owner.mode == "empty_content" and method == "tools/call":
                     response["result"] = {"content": []}
+                elif owner.mode == "malformed_text" and method == "tools/call":
+                    response["result"] = {"content": [{"type": "text"}]}
+                elif owner.mode == "malformed_image" and method == "tools/call":
+                    response["result"] = {
+                        "content": [{"type": "image", "data": "aGVsbG8="}]
+                    }
+                elif owner.mode == "malformed_audio" and method == "tools/call":
+                    response["result"] = {
+                        "content": [{"type": "audio", "mimeType": "audio/wav"}]
+                    }
+                elif owner.mode == "malformed_resource" and method == "tools/call":
+                    response["result"] = {
+                        "content": [{"type": "resource", "resource": {}}]
+                    }
+                elif owner.mode == "resource_missing_uri" and method == "tools/call":
+                    response["result"] = {
+                        "content": [
+                            {"type": "resource", "resource": {"text": "healthy"}}
+                        ]
+                    }
+                elif owner.mode == "resource_missing_body" and method == "tools/call":
+                    response["result"] = {
+                        "content": [
+                            {
+                                "type": "resource",
+                                "resource": {"uri": "file:///health.txt"},
+                            }
+                        ]
+                    }
+                elif owner.mode == "valid_resource" and method == "tools/call":
+                    response["result"] = {
+                        "content": [
+                            {
+                                "type": "resource",
+                                "resource": {
+                                    "uri": "file:///health.txt",
+                                    "text": '{"ok": true}',
+                                },
+                            }
+                        ]
+                    }
 
                 body = json.dumps(response).encode()
                 if owner.mode == "bad_json" and method == "initialize":
@@ -347,6 +388,44 @@ def test_server_rejects_malformed_health_content(fake_mcp_factory, mode):
     assert result["status"] == "failed"
     assert result["failed_stage"] == "health_call"
     assert result["error"]
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "malformed_text",
+        "malformed_image",
+        "malformed_audio",
+        "malformed_resource",
+        "resource_missing_uri",
+        "resource_missing_body",
+    ],
+)
+def test_server_rejects_missing_fields_in_supported_health_content(
+    fake_mcp_factory, mode
+):
+    server = fake_mcp_factory(mode=mode)
+
+    result = load_engine().test_server(
+        {"name": "sample", "port": server.port, "health_tool": "sample_health"}, 1
+    )
+
+    assert result["status"] == "failed"
+    assert result["failed_stage"] == "health_call"
+    assert result["error"]
+
+
+def test_server_accepts_valid_embedded_text_resource(fake_mcp_factory):
+    server = fake_mcp_factory(mode="valid_resource")
+
+    result = load_engine().test_server(
+        {"name": "sample", "port": server.port, "health_tool": "sample_health"}, 1
+    )
+
+    assert result["status"] == "passed"
+    resource = result["health"]["content"][0]["resource"]
+    assert resource["uri"] == "file:///health.txt"
+    assert resource["text"] == '{"ok": true}'
 
 
 def test_server_selects_matching_response_from_complex_sse(fake_mcp_factory):
