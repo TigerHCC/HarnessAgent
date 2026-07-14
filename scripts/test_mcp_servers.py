@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 import platform
 import socket
 import sys
@@ -156,9 +157,36 @@ def _validate_health_content(content, stage):
         raise StageError(stage, f"malformed health content item: {content_type!r}")
 
 
+def _endpoint(host, port):
+    url_host = host if ":" not in host or host.startswith("[") else f"[{host}]"
+    return f"http://{url_host}:{port}/mcp"
+
+
+def _server_record(
+    name, port, endpoint, health_tool, status, stage, duration, tools, health, error
+):
+    return {
+        "name": name,
+        "port": port,
+        "endpoint": endpoint,
+        "health_tool": health_tool,
+        "status": status,
+        "stage": stage,
+        "duration_seconds": duration,
+        "tools": tools,
+        "health": health,
+        "error": error,
+    }
+
+
 def test_server(entry, timeout, host="127.0.0.1"):
     started = time.monotonic()
     name = entry.get("name", "<unknown>") if isinstance(entry, dict) else "<unknown>"
+    port = entry.get("port") if isinstance(entry, dict) else None
+    health_tool = entry.get("health_tool") if isinstance(entry, dict) else None
+    endpoint = None
+    tools = []
+    health_result = None
     stage = "connect"
     try:
         if not isinstance(entry, dict):
@@ -174,7 +202,8 @@ def test_server(entry, timeout, host="127.0.0.1"):
             raise StageError(stage, "server entry port must be an integer from 1 to 65535")
         if not isinstance(health_tool, str) or not health_tool:
             raise StageError(stage, "server health_tool must be a non-empty string")
-        url = f"http://{host}:{port}/mcp"
+        url = _endpoint(host, port)
+        endpoint = url
         stage = "initialize"
         try:
             initialized, session_id = _post(
@@ -239,30 +268,44 @@ def test_server(entry, timeout, host="127.0.0.1"):
             raise StageError(stage, "health tool returned isError")
         content = health_result.get("content")
         _validate_health_content(content, stage)
-        return {
-            "name": name,
-            "status": "passed",
-            "tool_count": len(tools),
-            "tools": tools,
-            "health": health_result,
-            "duration_seconds": time.monotonic() - started,
-        }
+        return _server_record(
+            name,
+            port,
+            endpoint,
+            health_tool,
+            "passed",
+            stage,
+            time.monotonic() - started,
+            tools,
+            health_result,
+            None,
+        )
     except StageError as exc:
-        return {
-            "name": name,
-            "status": "failed",
-            "failed_stage": exc.stage,
-            "error": str(exc),
-            "duration_seconds": time.monotonic() - started,
-        }
+        return _server_record(
+            name,
+            port,
+            endpoint,
+            health_tool,
+            "failed",
+            exc.stage,
+            time.monotonic() - started,
+            tools,
+            health_result,
+            str(exc),
+        )
     except Exception as exc:
-        return {
-            "name": name,
-            "status": "failed",
-            "failed_stage": stage,
-            "error": str(exc),
-            "duration_seconds": time.monotonic() - started,
-        }
+        return _server_record(
+            name,
+            port,
+            endpoint,
+            health_tool,
+            "failed",
+            stage,
+            time.monotonic() - started,
+            tools,
+            health_result,
+            str(exc),
+        )
 
 
 def run_all(entries, timeout, host="127.0.0.1"):
@@ -286,12 +329,14 @@ def _without_raw_headers(value):
 
 
 def build_report(results, started_at, ended_at):
-    servers = _without_raw_headers(results)
+    servers = [_without_raw_headers(result) for result in results]
     passed = sum(result.get("status") == "passed" for result in servers)
+    duration = (ended_at - started_at).total_seconds()
     return {
+        "schema_version": "1.0",
         "started_at": _utc_text(started_at),
         "ended_at": _utc_text(ended_at),
-        "duration_seconds": (ended_at - started_at).total_seconds(),
+        "duration_seconds": duration,
         "runtime": {
             "hostname": socket.gethostname(),
             "platform": platform.platform(),
@@ -301,6 +346,7 @@ def build_report(results, started_at, ended_at):
             "total": len(servers),
             "passed": passed,
             "failed": len(servers) - passed,
+            "duration_seconds": duration,
         },
         "servers": servers,
     }
@@ -324,8 +370,8 @@ def _render_markdown(report):
     ]
     for server in report["servers"]:
         status = "PASS" if server.get("status") == "passed" else "FAIL"
-        stage = server.get("failed_stage", "-")
-        tools = server.get("tool_count", "-")
+        stage = server.get("stage", "-")
+        tools = len(server.get("tools") or [])
         duration = server.get("duration_seconds", 0)
         lines.append(
             f"| {server.get('name', '<unknown>')} | {status} | {stage} | "
@@ -341,7 +387,7 @@ def _render_markdown(report):
                     "",
                     f"### {server.get('name', '<unknown>')}",
                     "",
-                    f"- Stage: `{server.get('failed_stage', 'unknown')}`",
+                    f"- Stage: `{server.get('stage', 'unknown')}`",
                     f"- Error: {server.get('error', 'unknown error')}",
                 ]
             )
@@ -362,40 +408,86 @@ def _render_markdown(report):
     return "\n".join(lines) + "\n"
 
 
-def _atomic_write(path, content):
-    with tempfile.NamedTemporaryFile(
-        "w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", delete=False
-    ) as temporary:
-        temporary.write(content)
-        temporary_path = Path(temporary.name)
-    temporary_path.replace(path)
+def _write_temporary_sibling(path, content):
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(content)
+        return temporary_path
+    except Exception:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+        raise
 
 
-def write_reports(report, output_dir):
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    ended_at = datetime.fromisoformat(report["ended_at"].replace("Z", "+00:00"))
-    timestamp = ended_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    base = f"mcp-test-{timestamp}"
+def _reserve_report_paths(output_dir, base):
     suffix = 0
     while True:
         candidate = base if suffix == 0 else f"{base}-{suffix}"
         json_path = output_dir / f"{candidate}.json"
         markdown_path = output_dir / f"{candidate}.md"
-        if not json_path.exists() and not markdown_path.exists():
-            break
-        suffix += 1
+        try:
+            with json_path.open("x", encoding="utf-8"):
+                pass
+        except FileExistsError:
+            suffix += 1
+            continue
+        try:
+            with markdown_path.open("x", encoding="utf-8"):
+                pass
+        except FileExistsError:
+            json_path.unlink(missing_ok=True)
+            suffix += 1
+            continue
+        except Exception:
+            json_path.unlink(missing_ok=True)
+            raise
+        return json_path, markdown_path
 
-    _atomic_write(json_path, json.dumps(report, indent=2, ensure_ascii=True) + "\n")
-    _atomic_write(markdown_path, _render_markdown(report))
+
+def write_reports(report, output_dir):
+    json_content = json.dumps(report, indent=2, ensure_ascii=True) + "\n"
+    markdown_content = _render_markdown(report)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    ended_at = datetime.fromisoformat(report["ended_at"].replace("Z", "+00:00"))
+    timestamp = ended_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    base = f"mcp-test-{timestamp}"
+    json_path, markdown_path = _reserve_report_paths(output_dir, base)
+    temporary_paths = []
+    try:
+        temporary_paths.append(_write_temporary_sibling(json_path, json_content))
+        temporary_paths.append(
+            _write_temporary_sibling(markdown_path, markdown_content)
+        )
+        temporary_paths[0].replace(json_path)
+        temporary_paths[1].replace(markdown_path)
+    except Exception:
+        for temporary_path in temporary_paths:
+            temporary_path.unlink(missing_ok=True)
+        json_path.unlink(missing_ok=True)
+        markdown_path.unlink(missing_ok=True)
+        raise
     return json_path, markdown_path
 
 
 def _positive_seconds(value):
     seconds = float(value)
-    if seconds <= 0:
+    if not math.isfinite(seconds) or seconds <= 0:
         raise argparse.ArgumentTypeError("timeout must be greater than zero")
     return seconds
+
+
+def _validate_host(host):
+    if host not in {"127.0.0.1", "::1", "[::1]"}:
+        raise ValueError("host must be a loopback address")
 
 
 def _parse_args(argv):
@@ -430,7 +522,7 @@ def _print_summary(results, report_paths):
         detail = ""
         if label == "FAIL":
             detail = (
-                f" ({result.get('failed_stage', 'unknown')}: "
+                f" ({result.get('stage', 'unknown')}: "
                 f"{result.get('error', 'unknown error')})"
             )
         print(f"[{label}] {result.get('name', '<unknown>')}{detail}")
@@ -445,6 +537,11 @@ def _print_summary(results, report_paths):
 def main(argv=None) -> int:
     args = _parse_args(argv)
     try:
+        _validate_host(args.host)
+    except ValueError as exc:
+        print(f"Host error: {exc}", file=sys.stderr)
+        return 2
+    try:
         entries = load_manifest(args.manifest)
         _validate_manifest(entries)
     except (OSError, json.JSONDecodeError, ValueError) as exc:
@@ -454,10 +551,10 @@ def main(argv=None) -> int:
     started_at = datetime.now(timezone.utc)
     results = run_all(entries, timeout=args.timeout, host=args.host)
     ended_at = datetime.now(timezone.utc)
-    report = build_report(results, started_at, ended_at)
     try:
+        report = build_report(results, started_at, ended_at)
         report_paths = write_reports(report, args.output_dir)
-    except OSError as exc:
+    except Exception as exc:
         _print_summary(results, None)
         print(f"Report error: {exc}", file=sys.stderr)
         return 2

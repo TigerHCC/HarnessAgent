@@ -1,8 +1,10 @@
 import importlib.util
 import json
+import argparse
 import socket
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -226,7 +228,7 @@ def test_server_completes_handshake_and_health(fake_mcp):
         timeout=2,
     )
     assert result["status"] == "passed"
-    assert result["tool_count"] == 1
+    assert len(result["tools"]) == 1
     assert result["tools"] == ["sample_health"]
     assert result["health"]["content"][0]["text"] == '{"ok": true}'
     assert result["duration_seconds"] >= 0
@@ -249,7 +251,7 @@ def test_server_classifies_connection_failure():
         timeout=0.2,
     )
     assert result["status"] == "failed"
-    assert result["failed_stage"] == "connect"
+    assert result["stage"] == "connect"
     assert result["error"]
 
 
@@ -269,7 +271,7 @@ def test_server_classifies_protocol_failures(fake_mcp_factory, mode, stage):
         {"name": "sample", "port": server.port, "health_tool": "sample_health"}, 2
     )
     assert result["status"] == "failed"
-    assert result["failed_stage"] == stage
+    assert result["stage"] == stage
     assert result["error"]
 
 
@@ -376,7 +378,9 @@ def test_main_returns_failure_and_writes_partial_failure_reports(
 
     assert exit_code == 1
     report = json.loads(next(output_dir.glob("mcp-test-*.json")).read_text())
-    assert report["summary"] == {"total": 2, "passed": 1, "failed": 1}
+    assert report["summary"]["total"] == 2
+    assert report["summary"]["passed"] == 1
+    assert report["summary"]["failed"] == 1
     assert len(list(output_dir.glob("mcp-test-*.md"))) == 1
     stdout = capsys.readouterr().out
     assert "[FAIL] offline" in stdout
@@ -410,6 +414,78 @@ def test_main_returns_usage_error_for_malformed_manifest_without_network(
     assert not (tmp_path / "reports").exists()
 
 
+def test_main_rejects_remote_host_without_network(tmp_path, monkeypatch, capsys):
+    manifest = tmp_path / "servers.json"
+    manifest.write_text(
+        json.dumps(
+            [{"name": "sample", "port": 1234, "health_tool": "sample_health"}]
+        ),
+        encoding="utf-8",
+    )
+    module = load_engine()
+    called = False
+
+    def capture_run(*args, **kwargs):
+        nonlocal called
+        called = True
+        return []
+
+    monkeypatch.setattr(module, "run_all", capture_run)
+
+    exit_code = module.main(
+        [
+            "--manifest",
+            str(manifest),
+            "--output-dir",
+            str(tmp_path / "reports"),
+            "--host",
+            "example.com",
+        ]
+    )
+
+    assert exit_code == 2
+    assert called is False
+    assert "host" in capsys.readouterr().err.lower()
+    assert not (tmp_path / "reports").exists()
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "0", "-1"])
+def test_timeout_must_be_finite_and_positive(value):
+    module = load_engine()
+
+    with pytest.raises(argparse.ArgumentTypeError):
+        module._positive_seconds(value)
+
+
+@pytest.mark.parametrize("failing_function", ["build_report", "write_reports"])
+def test_main_maps_all_report_failures_to_exit_two(
+    tmp_path, monkeypatch, capsys, failing_function
+):
+    manifest = tmp_path / "servers.json"
+    manifest.write_text(
+        json.dumps(
+            [{"name": "sample", "port": 1234, "health_tool": "sample_health"}]
+        ),
+        encoding="utf-8",
+    )
+    module = load_engine()
+    monkeypatch.setattr(module, "run_all", lambda *args, **kwargs: [])
+
+    def fail(*args, **kwargs):
+        raise ValueError(f"injected {failing_function} failure")
+
+    monkeypatch.setattr(module, failing_function, fail)
+
+    exit_code = module.main(
+        ["--manifest", str(manifest), "--output-dir", str(tmp_path / "reports")]
+    )
+
+    assert exit_code == 2
+    stderr = capsys.readouterr().err
+    assert "report error" in stderr.lower()
+    assert f"injected {failing_function} failure" in stderr
+
+
 @pytest.mark.parametrize("mode", ["bad_json", "bad_sse", "http_error"])
 def test_initialize_response_failures_are_not_connection_failures(
     fake_mcp_factory, mode
@@ -421,7 +497,7 @@ def test_initialize_response_failures_are_not_connection_failures(
     )
 
     assert result["status"] == "failed"
-    assert result["failed_stage"] == "initialize"
+    assert result["stage"] == "initialize"
     assert result["error"]
 
 
@@ -443,7 +519,7 @@ def test_server_rejects_unmatched_jsonrpc_response_ids(
     )
 
     assert result["status"] == "failed"
-    assert result["failed_stage"] == stage
+    assert result["stage"] == stage
     assert result["error"]
 
 
@@ -456,7 +532,7 @@ def test_server_rejects_malformed_health_content(fake_mcp_factory, mode):
     )
 
     assert result["status"] == "failed"
-    assert result["failed_stage"] == "health_call"
+    assert result["stage"] == "health_call"
     assert result["error"]
 
 
@@ -481,7 +557,7 @@ def test_server_rejects_missing_fields_in_supported_health_content(
     )
 
     assert result["status"] == "failed"
-    assert result["failed_stage"] == "health_call"
+    assert result["stage"] == "health_call"
     assert result["error"]
 
 
@@ -523,7 +599,7 @@ def test_run_all_bounds_trickled_body_and_continues(fake_mcp_factory):
 
     assert elapsed < 0.8
     assert [result["status"] for result in results] == ["failed", "passed"]
-    assert results[0]["failed_stage"] == "initialize"
+    assert results[0]["stage"] == "initialize"
 
 
 def test_run_all_isolates_invalid_entry_metadata(fake_mcp_factory):
@@ -546,21 +622,30 @@ def sample_report(module):
     results = [
         {
             "name": "healthy",
+            "port": 1234,
+            "endpoint": "http://127.0.0.1:1234/mcp",
+            "health_tool": "sample_health",
             "status": "passed",
-            "tool_count": 2,
+            "stage": "health_call",
             "tools": ["sample_health", "sample_info"],
             "health": {
                 "content": [{"type": "text", "text": '{"ok": true}'}],
                 "raw_headers": {"Authorization": "secret"},
             },
+            "error": None,
             "duration_seconds": 0.25,
             "raw_headers": {"Mcp-Session-Id": "secret"},
         },
         {
             "name": "offline",
+            "port": 1235,
+            "endpoint": "http://127.0.0.1:1235/mcp",
+            "health_tool": "sample_health",
             "status": "failed",
-            "failed_stage": "connect",
+            "stage": "connect",
             "error": "connection refused",
+            "tools": [],
+            "health": None,
             "duration_seconds": 0.1,
         },
     ]
@@ -573,15 +658,78 @@ def test_build_report_summarizes_results_and_runtime_metadata():
     assert report["started_at"] == "2026-07-15T01:02:03Z"
     assert report["ended_at"] == "2026-07-15T01:02:05.500000Z"
     assert report["duration_seconds"] == 2.5
-    assert report["summary"] == {"total": 2, "passed": 1, "failed": 1}
+    assert report["schema_version"] == "1.0"
+    assert report["summary"] == {
+        "total": 2,
+        "passed": 1,
+        "failed": 1,
+        "duration_seconds": 2.5,
+    }
     assert report["runtime"]["hostname"]
     assert report["runtime"]["platform"]
     assert report["runtime"]["python_version"]
     assert report["servers"][0]["tools"] == ["sample_health", "sample_info"]
     assert report["servers"][0]["health"]["content"][0]["type"] == "text"
-    assert report["servers"][1]["failed_stage"] == "connect"
+    assert report["servers"][1]["stage"] == "connect"
     assert report["servers"][1]["error"] == "connection refused"
     assert "raw_headers" not in json.dumps(report)
+
+
+def test_report_schema_normalizes_passed_and_failed_servers(fake_mcp_factory):
+    healthy = fake_mcp_factory()
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        unused_port = sock.getsockname()[1]
+    entries = [
+        {
+            "name": "healthy",
+            "port": healthy.port,
+            "health_tool": "sample_health",
+        },
+        {
+            "name": "offline",
+            "port": unused_port,
+            "health_tool": "sample_health",
+        },
+    ]
+    module = load_engine()
+    started_at = datetime(2026, 7, 15, 1, 2, 3, tzinfo=timezone.utc)
+    ended_at = datetime(2026, 7, 15, 1, 2, 4, 500000, tzinfo=timezone.utc)
+
+    report = module.build_report(module.run_all(entries, timeout=1), started_at, ended_at)
+
+    assert report["schema_version"] == "1.0"
+    assert report["summary"]["duration_seconds"] == 1.5
+    expected_keys = {
+        "name",
+        "port",
+        "endpoint",
+        "health_tool",
+        "status",
+        "stage",
+        "duration_seconds",
+        "tools",
+        "health",
+        "error",
+    }
+    assert all(set(server) == expected_keys for server in report["servers"])
+    passed, failed = report["servers"]
+    assert passed["port"] == healthy.port
+    assert passed["endpoint"] == f"http://127.0.0.1:{healthy.port}/mcp"
+    assert passed["health_tool"] == "sample_health"
+    assert passed["status"] == "passed"
+    assert passed["stage"] == "health_call"
+    assert passed["tools"] == ["sample_health"]
+    assert passed["health"]["content"]
+    assert passed["error"] is None
+    assert failed["port"] == unused_port
+    assert failed["endpoint"] == f"http://127.0.0.1:{unused_port}/mcp"
+    assert failed["health_tool"] == "sample_health"
+    assert failed["status"] == "failed"
+    assert failed["stage"] == "connect"
+    assert failed["tools"] == []
+    assert failed["health"] is None
+    assert failed["error"]
 
 
 def test_write_reports_creates_paired_json_and_markdown(tmp_path):
@@ -597,7 +745,7 @@ def test_write_reports_creates_paired_json_and_markdown(tmp_path):
     assert json.loads(json_path.read_text(encoding="utf-8")) == report
     markdown = markdown_path.read_text(encoding="utf-8")
     assert "| Server | Status | Stage | Tools | Duration |" in markdown
-    assert "| healthy | PASS | - | 2 | 0.250s |" in markdown
+    assert "| healthy | PASS | health_call | 2 | 0.250s |" in markdown
     assert "## Failure Details" in markdown
     assert "offline" in markdown and "connection refused" in markdown
     assert "## Health: healthy" in markdown
@@ -616,3 +764,51 @@ def test_write_reports_suffixes_filename_when_timestamp_collides(tmp_path):
     assert second_json.name == "mcp-test-20260715T010205Z-1.json"
     assert second_markdown.name == "mcp-test-20260715T010205Z-1.md"
     assert second_json.exists() and second_markdown.exists()
+
+
+def test_write_reports_reserves_colliding_names_across_concurrent_writers(
+    tmp_path, monkeypatch
+):
+    module = load_engine()
+    report = sample_report(module)
+    barrier = threading.Barrier(2)
+    original_exists = Path.exists
+    first_names = {
+        "mcp-test-20260715T010205Z.json",
+        "mcp-test-20260715T010205Z.md",
+    }
+
+    def synchronized_exists(path):
+        exists = original_exists(path)
+        if path.parent == tmp_path and path.name in first_names and not exists:
+            barrier.wait(timeout=5)
+        return exists
+
+    monkeypatch.setattr(Path, "exists", synchronized_exists)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(module.write_reports, report, tmp_path) for _ in range(2)]
+        pairs = [future.result(timeout=10) for future in futures]
+
+    assert pairs[0][0] != pairs[1][0]
+    assert pairs[0][1] != pairs[1][1]
+    assert len(list(tmp_path.glob("mcp-test-*.json"))) == 2
+    assert len(list(tmp_path.glob("mcp-test-*.md"))) == 2
+
+
+def test_write_reports_cleans_pair_when_second_publish_fails(tmp_path, monkeypatch):
+    module = load_engine()
+    report = sample_report(module)
+    original_replace = Path.replace
+
+    def fail_markdown_publish(path, target):
+        if Path(target).suffix == ".md":
+            raise OSError("injected Markdown publish failure")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_markdown_publish)
+
+    with pytest.raises(OSError, match="Markdown publish failure"):
+        module.write_reports(report, tmp_path)
+
+    assert list(tmp_path.iterdir()) == []
