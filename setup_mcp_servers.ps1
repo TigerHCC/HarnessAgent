@@ -37,6 +37,9 @@
                          (a security-relevant change that ACCEPTS the Sysinternals EULA); it feeds the
                          eventlog MCP. Idempotent: if Sysmon is already installed, its config is
                          refreshed rather than reinstalled.
+.PARAMETER SkipWatchdog  Don't install the MCP watchdog. By default this registers tools\mcp_watchdog
+                         (a Scheduled Task that every 5 min restarts any MCP server whose event loop has
+                         wedged -- listening but not answering -- which would otherwise hang Goose).
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File .\setup_mcp_servers.ps1
@@ -53,6 +56,7 @@ param(
   [switch]$SkipConfig,
   [switch]$Uninstall,
   [switch]$SkipSysmon,
+  [switch]$SkipWatchdog,
   [string]$ConfigPath = (Join-Path $env:APPDATA "Block\goose\config\config.yaml")
 )
 
@@ -169,6 +173,9 @@ if ($Uninstall) {
       & $py -c "import sys,yaml; yaml.safe_load(open(sys.argv[1],encoding='utf-8')); print('config YAML OK')" $ConfigPath 2>&1 | Out-Host
     } else { Ok "No managed extensions present in config -- no change." }
   }
+  # remove the MCP watchdog too (it only makes sense alongside the servers)
+  $wdUninstall = Join-Path $here "tools\mcp_watchdog\uninstall_watchdog.ps1"
+  if (Test-Path $wdUninstall) { try { & $wdUninstall | Out-Host } catch {} }
   Write-Host ""
   Ok "Uninstall done. Python packages were NOT removed (other things may use them)."
   Warn "goose_web and Sysmon are separate -- this script did not touch them."
@@ -320,6 +327,18 @@ else {
       else { Warn "Sysmon install returned exit $LASTEXITCODE (see tools\sysmon\README.md)." }
     }
   }
+}
+
+# --- 3.6 MCP watchdog ---------------------------------------------------------
+# Registers a Scheduled Task that every 5 min restarts any MCP server whose event loop has wedged
+# (listening but not answering) -- which would otherwise hang Goose. See tools\mcp_watchdog\README.md.
+if ($SkipWatchdog) { Warn "Skipping MCP watchdog (-SkipWatchdog)." }
+else {
+  $wdInstall = Join-Path $here "tools\mcp_watchdog\install_watchdog.ps1"
+  if (Test-Path $wdInstall) {
+    Info "Installing the MCP watchdog (restarts a wedged MCP every 5 min)..."
+    try { & $wdInstall | Out-Host } catch { Warn "watchdog install failed: $_" }
+  } else { Warn "tools\mcp_watchdog\install_watchdog.ps1 not found -- skipping watchdog." }
 }
 
 # --- 4. Health check ---

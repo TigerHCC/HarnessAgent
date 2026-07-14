@@ -9,6 +9,23 @@ Severity: **Important** = wrong/fragile behaviour a user can hit · **Minor** = 
 
 ## Open
 
+- **[Important] Any wedged MCP server hangs the whole harness; FastMCP runs sync tools on the event
+  loop.** Observed live: the `dtmsdk` server wedged (port listening, raw `GET /mcp` timed out, 0 CPU) and
+  froze **both** the goose CLI and goose_web — because Goose initializes all MCP extensions in parallel
+  and waits for every one, with no per-MCP init timeout, so one dead handshake blocks startup before the
+  model is ever called. **Mitigated** by `tools/mcp_watchdog/` (restarts a wedged server every 5 min).
+  Root cause (medium confidence, investigated): FastMCP executes a sync `@mcp.tool()` **inline on the
+  single asyncio event loop** with no thread offload (`mcp/server/fastmcp/utilities/func_metadata.py:68`),
+  so any blocking tool freezes the whole server. `dtmsdk` is the one that wedged because it is the only
+  server that spawns heavyweight external DTP utils, and on Windows `subprocess.run`'s post-timeout
+  `communicate()` drain (`runner.py`) can block **forever** if a surviving grandchild holds the inherited
+  stdout pipe. (An SDK-level streamable-http session leak — `_server_instances` never pruned, a global
+  `_session_creation_lock` held across each new-session request — is a related latent risk but not in our
+  code.) **dtmsdk hardening still to do:** (1) make the blocking tools async + `anyio.to_thread.run_sync`
+  so a hang leaks a worker thread instead of freezing the loop; (2) kill the whole process tree on
+  timeout (`taskkill /T /F`) + bound the drain; (3) prune `_TOKENS`. Same async-offload pattern is a
+  latent risk for the other subprocess-spawning MCPs (`disk`, `winupdate`).
+
 _Seeded from the 2026-07-12 audit of the 12 diagnostic MCPs and goose_web. Not yet verified beyond a
 code read — the loop must reproduce each one before fixing it, and move it to `## Rejected` if it can't._
 
