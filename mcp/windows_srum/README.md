@@ -73,3 +73,5 @@ goose run --no-session -t "Use srum_network_usage for the last 48 hours and list
 | `requirements.txt` | python deps |
 | `SCHEMA.md` | confirmed SRUM schema + decoding notes |
 | `tests/` | pytest unit + smoke tests |
+
+Batch-test this server with the [central MCP suite instructions](../README.md#test-all-local-mcp-servers).

@@ -62,3 +62,5 @@ baseline_diff()                     # which tag grew -> tag_driver("Xyz ") -> th
 `memstate_mcp_server.py` (FastMCP, 7 tools) · `native.py` (NtQuerySystemInformation + GetPerformanceInfo)
 · `pooltags.py` (known-tag map + tag->driver scan) · `start_memstate_mcp.ps1` / `install_task.ps1` /
 `uninstall_task.ps1` · `tests/` · `data/`.
+
+Batch-test this server with the [central MCP suite instructions](../README.md#test-all-local-mcp-servers).

@@ -242,3 +242,5 @@ python -m pytest tests/test_live.py -q                     # 2 skipped unless OB
 
 See [`DESIGN.md`](DESIGN.md) for the module map, the path-confinement and token-binding arguments, and
 why there is no delete and no silent overwrite.
+
+Batch-test this server with the [central MCP suite instructions](../README.md#test-all-local-mcp-servers).

@@ -65,3 +65,5 @@ Baselines in `data/` (gitignored; override with `DISK_BASELINES`).
 `disk_mcp_server.py` (FastMCP, 7 tools) · `usn_reader.py` (USN journal via ctypes) · `disk_health.py`
 (SMART/reliability/volume via PowerShell + JSON baselines) · `start_disk_mcp.ps1` / `install_task.ps1` /
 `uninstall_task.ps1` · `tests/` · `data/`. MFT space-forensics scan is v2 (out of scope).
+
+Batch-test this server with the [central MCP suite instructions](../README.md#test-all-local-mcp-servers).

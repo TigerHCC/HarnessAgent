@@ -82,7 +82,7 @@ GB10 vLLM relaunched (by user) with:
 `--host 0.0.0.0 --port 8000 --enable-auto-tool-choice --tool-call-parser qwen3_coder`
 (`qwen3_coder`/`qwen3_xml` parses the XML format; `hermes` is for non-Coder Qwen JSON format).
 
-GB10 deployment is defined in [`../docker-compose.yaml`](../docker-compose.yaml) — service
+GB10 deployment is defined in [`../config/docker-compose.yaml`](../config/docker-compose.yaml) — service
 `qwen-chat` serves `Qwen/Qwen3.6-35B-A3B-FP8` as `qwen-3.6-chat` on `:8000`; `qwen-embed`
 serves `qwen-3-4b-embed` on `:8001`. That compose file's `qwen-chat` command had a duplicate
 `--tool-call-parser` (hermes then qwen3_coder); cleaned to a single `qwen3_coder`. Apply the

@@ -178,3 +178,5 @@ example `dtm_help("transmission", "collect-transmit")` returns the documented op
 
 See [`DESIGN.md`](DESIGN.md) for the module map, the classification rationale, and the full safe/gated
 split; see [`TODO_PHASE2.md`](TODO_PHASE2.md) for what live-testing is deferred.
+
+Batch-test this server with the [central MCP suite instructions](../README.md#test-all-local-mcp-servers).

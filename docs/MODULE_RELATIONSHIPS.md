@@ -61,19 +61,36 @@ flowchart LR
 
 ## 2. Repository module relationships
 
+The shared manifest drives installation and the non-privileged batch-test client:
+
+```mermaid
+flowchart LR
+    Manifest["config/mcp_servers.json"] --> Setup["setup_mcp_servers.ps1"]
+    Manifest --> Batch["test_mcp_servers.ps1\n+ Python test engine"]
+    Batch --> Servers["14 local MCP servers"]
+    Batch --> Reports["reports/mcp/*.json + *.md"]
+```
+
 ```mermaid
 flowchart TB
+    Manifest["config/mcp_servers.json"]
     Setup["setup_mcp_servers.ps1"]
+    Batch["test_mcp_servers.ps1\nand scripts/test_mcp_servers.py"]
+    Reports["reports/mcp/\nJSON and Markdown"]
     Config["config/windows_config.yaml"]
     Tasks["Windows Scheduled Tasks\nstart at user logon"]
     Goose["Goose CLI"]
 
+    Manifest -.->|"server metadata"| Setup
+    Manifest -.->|"test targets and health tools"| Batch
     Setup -.->|"pip install requirements"| PyDeps["Python dependencies"]
     Setup -.->|"register/start"| Tasks
     Setup -.->|"register extensions"| Config
     Config -.-> Goose
     Tasks --> Servers
     Goose -->|"MCP over 127.0.0.1"| Servers
+    Batch -->|"initialize, list, health call"| Servers
+    Batch -->|"write"| Reports
 
     subgraph Servers["FastMCP server entry points and imported repository modules"]
         SRUM["srum_mcp_server.py :8777"] --> SRUMLive["live_metrics.py\npsutil + WMI"]

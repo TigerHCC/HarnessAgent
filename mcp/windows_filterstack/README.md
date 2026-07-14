@@ -60,3 +60,5 @@ Authenticode signer, so CompanyName is the reliable third-party signal). Baselin
 `filterstack_mcp_server.py` (FastMCP, 7 tools) · `parsers.py` (fltmc/NDIS/LSP parsing + altitude map +
 ImagePath->CompanyName + baselines) · `start_filterstack_mcp.ps1` / `install_task.ps1` /
 `uninstall_task.ps1` · `tests/` · `data/`.
+
+Batch-test this server with the [central MCP suite instructions](../README.md#test-all-local-mcp-servers).

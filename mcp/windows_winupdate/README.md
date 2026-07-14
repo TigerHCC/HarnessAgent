@@ -63,3 +63,5 @@ hresult_decode("0x800f0922")         # -> CBS_E_INSTALLERS_FAILED + what to do
 ## Files
 `winupdate_mcp_server.py` (FastMCP, 5 tools) · `winupdate.py` (WUA history + Get-HotFix + pending + HRESULT
 table) · `start_winupdate_mcp.ps1` / `install_task.ps1` / `uninstall_task.ps1` · `tests/`.
+
+Batch-test this server with the [central MCP suite instructions](../README.md#test-all-local-mcp-servers).

@@ -82,3 +82,5 @@ FILETIME overflow guard, TOCTOU-safe path resolution, observable truncation).
 `crash_mcp_server.py` (FastMCP, 6 tools) · `wer_reader.py` (WER scan/parse/bucket) ·
 `dump_reader.py` (dump enum + struct parse + optional cdb) · `bugchecks.py` (bugcheck + NTSTATUS
 tables) · `start_crash_mcp.ps1` / `install_task.ps1` / `uninstall_task.ps1` · `tests/`.
+
+Batch-test this server with the [central MCP suite instructions](../README.md#test-all-local-mcp-servers).

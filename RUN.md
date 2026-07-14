@@ -1,5 +1,17 @@
 # Running the Goose Harness Agent (with DTM Knowledge Agent MCP)
 
+## Test all local MCP servers
+With the 14 local Windows MCP servers running, use an **unelevated** PowerShell session:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\test_mcp_servers.ps1
+```
+The client reads [`config/mcp_servers.json`](config/mcp_servers.json) and performs only the safe MCP
+sequence `initialize` → `notifications/initialized` → `tools/list` → the declared health
+`tools/call`. Reports default to `reports/mcp/` in both JSON and Markdown. Exit codes are `0` for
+all passed, `1` for one or more server failures, and `2` for a test setup or report-writing error.
+Degraded health data is retained in the report and is distinct from a transport, protocol, or
+tool-call failure. Architecture: [`docs/MODULE_RELATIONSHIPS.md`](docs/MODULE_RELATIONSHIPS.md).
+
 The DTM agent is wired into Goose as the `dtm` extension. By default it is
 `type: streamable_http` pointing at `http://127.0.0.1:8765/mcp`, so it needs the
 **`dtm-mcp-proxy` systemd unit** (binds `:8765`) to be up — it is *not* a Goose

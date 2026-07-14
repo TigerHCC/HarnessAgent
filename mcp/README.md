@@ -95,13 +95,28 @@ silent overwrite. Vault path lives in `windows_obsidian/config.json` (one-line r
 logon Scheduled Task per server, and registers each extension into goose's `config.yaml`):
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\..\setup_goose.ps1          # 1. goose itself + base config
-powershell -ExecutionPolicy Bypass -File .\..\setup_mcp_servers.ps1    # 2. all 12 diagnostic MCPs (Administrator)
+powershell -ExecutionPolicy Bypass -File .\..\setup_mcp_servers.ps1    # 2. all 14 local MCPs (Administrator)
 ```
 `setup_mcp_servers.ps1` flags: `-SkipDeps` (no `pip install`) · `-SkipTasks` (don't register Scheduled
 Tasks) · `-NoStart` (register but don't launch) · `-SkipConfig` (leave `config.yaml` alone) ·
 `-SkipSysmon` (don't install/refresh Sysmon) · `-ConfigPath <path>` (non-default goose config) ·
 **`-Uninstall`** (stop the servers, unregister the Scheduled Tasks, and strip the extension blocks from
 `config.yaml` — backed up to `config.yaml.bak-mcpuninstall` first; pip packages and Sysmon are left alone).
+
+### Test all local MCP servers
+
+Once the servers are running, test all 14 from a normal, **unelevated** PowerShell session:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\..\test_mcp_servers.ps1
+```
+The test reads the shared [`../config/mcp_servers.json`](../config/mcp_servers.json) manifest and
+uses the safe sequence `initialize` → `notifications/initialized` → `tools/list` → the manifest's
+health `tools/call`; it never calls the diagnostic or confirmation-gated tools. Timestamped `.json`
+and `.md` reports default to `../reports/mcp/`. Exit codes are `0` (all pass), `1` (one or more
+transport, protocol, or tool-call failures), and `2` (invalid invocation/manifest or report error).
+A successful health call can contain degraded data-source status; that payload is preserved and is
+not the same as a failed transport or tool call. See the
+[`module relationships`](../docs/MODULE_RELATIONSHIPS.md#2-repository-module-relationships).
 
 By default the setup also installs **Sysmon** (Microsoft kernel driver + audit config from the committed
 `../tools/sysmon/Sysmon.zip`) so the `eventlog` MCP can query `Microsoft-Windows-Sysmon/Operational`. This
@@ -170,7 +185,7 @@ would report on SYSTEM's hive instead of yours.
 > UAC-free read-only window onto admin-level data. Fine for a single-user diagnostic box; do not run this
 > suite on a machine with untrusted local users.
 
-**Turning servers on and off at runtime:** goose_web's sidebar has a per-MCP toggle for exactly these 12
+**Turning servers on and off at runtime:** goose_web's sidebar has a per-MCP toggle for all 14 local MCPs
 (it flips `enabled:` in `config.yaml`, which the next `goose run` re-reads — no restart). See
 [`../goose_web/README.md`](../goose_web/README.md).
 

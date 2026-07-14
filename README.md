@@ -45,7 +45,7 @@ Validated on the Windows 11 dev box on 2026-06-28, and re-validated the same day
 | Doc | For |
 |---|---|
 | **this README** (below) | the short path: two commands, from clone to working |
-| [`mcp/README.md`](mcp/README.md) | the 12 diagnostic MCPs — ports, privileges, install flags |
+| [`mcp/README.md`](mcp/README.md) | all 14 local MCPs — ports, privileges, install and batch-test instructions |
 | [`docs/DIAGNOSTIC_PLAYBOOK.md`](docs/DIAGNOSTIC_PLAYBOOK.md) | how to actually *use* them: symptom → tool → prompt (Chinese) |
 | [`docs/SETUP_GUIDE.md`](docs/SETUP_GUIDE.md) | long-form reference — the GB10/Linux side (vLLM, Ollama, DTM, PK) the one-click installers don't cover |
 | [`RUN.md`](RUN.md) | launching the harness + goose_web with DTM/PK |
@@ -104,6 +104,22 @@ powershell -ExecutionPolicy Bypass -File .\setup_mcp_servers.ps1
 This also installs **Sysmon** (kernel driver + audit config, enriching the `eventlog` MCP) — a
 security-relevant change that accepts the Sysinternals EULA; `-SkipSysmon` opts out. See
 [`tools/sysmon/README.md`](tools/sysmon/README.md). Flags and per-server details: [`mcp/README.md`](mcp/README.md).
+
+### Test all local MCP servers
+Run the protocol-level test client from a normal, **unelevated** PowerShell session after the
+servers are started:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\test_mcp_servers.ps1
+```
+For every entry in [`config/mcp_servers.json`](config/mcp_servers.json), the client safely performs
+`initialize` → `notifications/initialized` → `tools/list` → the declared health `tools/call`.
+It does not invoke diagnostic or write-capable tools. Timestamped JSON and Markdown reports go to
+`reports/mcp/` by default. Exit code `0` means all servers passed, `1` means one or more transport,
+protocol, or tool-call checks failed, and `2` means the test could not run or write its reports.
+A health payload may report a degraded data source while the MCP transport and health tool call
+still pass; transport/protocol/tool-call failures are reported as failed stages. See the
+[`mcp/` instructions](mcp/README.md#test-all-local-mcp-servers) and
+[`module relationships`](docs/MODULE_RELATIONSHIPS.md#2-repository-module-relationships).
 
 ---
 

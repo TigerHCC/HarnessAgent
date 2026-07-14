@@ -60,3 +60,5 @@ when `check_signatures=True`).
 `procinspect_mcp_server.py` (FastMCP, 7 tools) · `native.py` (Restart Manager + Wait Chain Traversal) ·
 `procdetail.py` (psutil detail/modules/handle-ranking) · `start_procinspect_mcp.ps1` / `install_task.ps1`
 / `uninstall_task.ps1` · `tests/`.
+
+Batch-test this server with the [central MCP suite instructions](../README.md#test-all-local-mcp-servers).

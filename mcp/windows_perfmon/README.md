@@ -58,3 +58,5 @@ Serves `http://127.0.0.1:8783/mcp`. Pure stdlib — `ctypes` against `pdh.dll` (
 `perfmon_mcp_server.py` (FastMCP, 6 tools) · `pdh_reader.py` (ctypes PDH + curated counter set +
 bottleneck heuristic + JSON baselines) · `start_perfmon_mcp.ps1` / `install_task.ps1` /
 `uninstall_task.ps1` · `tests/` · `data/`.
+
+Batch-test this server with the [central MCP suite instructions](../README.md#test-all-local-mcp-servers).

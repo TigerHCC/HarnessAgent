@@ -68,10 +68,10 @@ The 12 diagnostic servers, in port order: `srum` 8777 · `eventlog` 8778 · `cra
 - Ollama binary at `/usr/local/bin/ollama` running as a systemd service on `:11434`.
 - DTM/PK MCP trees on this GB10 box (the live `dtm-mcp-proxy`/`pk-mcp-proxy` systemd units and the `qb10_*_mcp.sh` stdio launchers point here): DTM agent at `/home/nvidia/Downloads/GB10-workspace/dtm-agent` (project `venv/`, `DTMKnowledge/` data dir, `config.yaml`) and PK at `/home/nvidia/Downloads/GB10-workspace/pk-mcp` (project `venv/`, `kb/` data dir, `kb_query.py`, `config.yaml`). Each `venv/` has chromadb, requests, pyyaml; Python 3.10+ (see each tree's `README.md`/`SETUP.md`). (`/home/nvidia/Downloads/PersonalKnowledge` is the older/divergent checkout — prefer the GB10-workspace trees for dtm/pk on this box.)
 
-**On Windows (for the 12-server diagnostic MCP suite)**
+**On Windows (for the 14-server local MCP suite)**
 - Windows machine, Python 3.13 in PATH as `python`, Administrator privileges available (needed to *install* the Scheduled Tasks — see Step 5).
 - Goose 1.39 (uses `streamable_http` + `/mcp`; SSE dropped).
-- Per-server `requirements.txt` deps — `setup_mcp_servers.ps1` installs the union of all 12 for you.
+- Per-server `requirements.txt` deps — `setup_mcp_servers.ps1` installs the manifest-defined set for you.
 
 **On any box that runs Goose / goose_web**
 - Same LAN as the GB10 and able to reach `192.168.86.44` (`:8000`, `:11434`).
@@ -261,17 +261,24 @@ Confirm config landed and contains `GOOSE_TELEMETRY_ENABLED: false` (Linux `~/.c
 
 ---
 
-## Step 5 — Enable the Windows diagnostic MCP suite (12 servers)
+## Step 5 — Enable the local Windows MCP suite (14 servers)
 
-**Windows only** (`linux_steps` empty by design). Twelve loopback-only FastMCP servers on `8777`–`8788`, each read-only. Goose runs **unprivileged** and talks to them over loopback HTTP. **Requires Step 4 (Install Goose) done first** — the installer registers extensions into a config that must already exist.
+**Windows only** (`linux_steps` empty by design). Fourteen loopback-only FastMCP servers on
+`8777`–`8790`: twelve read-only diagnostic servers, confirmation-gated `dtmsdk`, and unelevated,
+confirmation-gated `obsidian`. Goose runs **unprivileged** and talks to them over loopback HTTP.
+**Requires Step 4 (Install Goose) done first** — the installer registers extensions into a config
+that must already exist. The canonical list is [`../config/mcp_servers.json`](../config/mcp_servers.json).
 
 **On Windows — one command, in an ELEVATED PowerShell:**
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\setup_mcp_servers.ps1
 ```
-Idempotent. It installs the union of all 12 `requirements.txt` files, registers + starts a `RunLevel Highest` **at-logon** Scheduled Task per server, appends all 12 `streamable_http` extension blocks to `%APPDATA%\Block\goose\config\config.yaml` (backup: `config.yaml.bak-mcpsetup`), and prints a port/task status table.
+Idempotent. It installs the manifest servers' Python requirements, registers + starts an **at-logon**
+Scheduled Task per server (`Highest` except `obsidian`, which is `Limited`), appends all 14
+`streamable_http` extension blocks to `%APPDATA%\Block\goose\config\config.yaml` (backup:
+`config.yaml.bak-mcpsetup`), and prints a port/task status table.
 
-Flags: `-SkipDeps` · `-SkipTasks` · `-NoStart` · `-SkipConfig` · `-ConfigPath <path>` · **`-Uninstall`** (stop the servers, drop the tasks, strip the 12 extension blocks; backup `config.yaml.bak-mcpuninstall`).
+Flags: `-SkipDeps` · `-SkipTasks` · `-NoStart` · `-SkipConfig` · `-ConfigPath <path>` · **`-Uninstall`** (stop the servers, drop the tasks, strip the 14 extension blocks; backup `config.yaml.bak-mcpuninstall`).
 
 **Why elevated — and what that does *not* mean.** Admin is needed to *register* a `RunLevel Highest` Scheduled Task, and by several servers at *runtime* for specific data sources (SRUM's SYSTEM-locked `SRUDB.dat`, the Security event log, Prefetch/BAM/ShimCache, the USN journal's raw volume handle, `fltmc`). It is **not** needed by Goose, which stays unelevated — a TCP socket has no UAC boundary. Four of the twelve (`netconn`, `perfmon`, `drift`, `winupdate`) need no admin at all, and the rest gate only the affected tools and degrade gracefully. Full table: [`../mcp/README.md`](../mcp/README.md#privileges--what-actually-needs-administrator).
 
@@ -288,15 +295,16 @@ python -m pip install -r requirements.txt
 
 **Ports exposed:** `127.0.0.1:8777`–`8788` (loopback only; each port bind doubles as that server's single-instance lock).
 
-**Verify:**
+**Test all local MCP servers** from a normal, **unelevated** PowerShell session:
 ```powershell
-# A raw GET http://127.0.0.1:8777/mcp returning HTTP 400 is NORMAL (the endpoint is up).
-$env:GOOSE_MODE="auto"
-goose run --no-session -t "Call srum_health, then live_snapshot. Report admin status and current CPU%/memory%/battery."
-goose run --no-session -t "Call eventlog_health, then error_summary for the last 72 hours (top 5 system errors)."
-schtasks /query /tn SRUM-MCP        # ...and the other 11 task names
+powershell -ExecutionPolicy Bypass -File .\test_mcp_servers.ps1
 ```
-(Event Log `level` uses Windows numerics: 1=Critical, 2=Error, 3=Warning, 4=Information.)
+The client safely performs `initialize` → `notifications/initialized` → `tools/list` → each
+manifest-declared health `tools/call`. It writes timestamped JSON and Markdown reports under
+`reports/mcp/` by default and exits `0` when all pass, `1` for server transport/protocol/tool-call
+failures, or `2` for invocation, manifest, or report errors. A degraded health payload is recorded
+but differs from a transport or tool-call failure. See
+[`MODULE_RELATIONSHIPS.md`](MODULE_RELATIONSHIPS.md#2-repository-module-relationships).
 
 **Using them for real diagnosis** — [`DIAGNOSTIC_PLAYBOOK.md`](DIAGNOSTIC_PLAYBOOK.md) maps symptom → tool → exact call → ready-to-paste Goose prompt (written in Traditional Chinese).
 
@@ -371,7 +379,8 @@ With telemetry on, Goose would POST usage metadata (model, extension/session nam
 2. **Tool-calling parser:** a `chat/completions` call with a tool schema returns `finish_reason: tool_calls` (not `stop` with raw `<function=...>` XML).
 3. **Goose installed:** `goose --version` → 1.39.0; smoke test creates `ok.txt` containing `READY`; config contains `GOOSE_TELEMETRY_ENABLED: false`.
 4. **DTM + PK in Goose (GB10):** `goose info -v` loads cleanly; `grep -cE '^[[:space:]]{2}dtm:' …config.yaml` → 1 and `grep -cE '^  pk:' …config.yaml` → 1; in a session, a DTM query (`What telemetry covers battery health?`) returns, and PK `list_sources` returns the 6 `pk_*` collection counts + `search_kb` retrieves (needs `:8001`). DTM proxy reachable: `curl http://127.0.0.1:8765/mcp`.
-5. **Windows diagnostic MCP suite:** re-running `setup_mcp_servers.ps1` prints its status table with all 12 rows `port ####:UP  task:Ready`. In a session, `$env:GOOSE_MODE="auto"; goose run --no-session -t "Call srum_health, then live_snapshot…"` reports admin status + CPU/mem/battery, and `"Call eventlog_health, then error_summary for the last 72 hours…"` returns top errors.
+5. **Local Windows MCP suite:** run `powershell -ExecutionPolicy Bypass -File .\test_mcp_servers.ps1`
+   unelevated; expect 14 passed entries plus timestamped JSON and Markdown report paths.
 6. **goose_web reachable:** `curl http://192.168.86.44:8799/api/health` → 3/3 backends `ok`; the browser UI at `http://192.168.86.44:8799` answers a chat message.
 
 ---

@@ -62,3 +62,5 @@ Prefetch decompress, `winreg`/`struct` for the rest; `pywin32` only to resolve B
 `exec_mcp_server.py` (FastMCP, 7 tools) · `prefetch_reader.py` (MAM decompress + SCCA parse) ·
 `registry_forensics.py` (BAM/UserAssist/ShimCache) · `start_exec_mcp.ps1` / `install_task.ps1` /
 `uninstall_task.ps1` · `tests/`. Amcache.hve is out of scope for v1 (needs hive load/parse).
+
+Batch-test this server with the [central MCP suite instructions](../README.md#test-all-local-mcp-servers).

@@ -73,3 +73,5 @@ goose run --no-session -t "Use user_activity for the last 24 hours and summarize
 | `requirements.txt` | mcp, pywin32 |
 | `SPIKE_NOTES.md` | confirmed Evt API signatures |
 | `tests/` | pytest unit + smoke tests |
+
+Batch-test this server with the [central MCP suite instructions](../README.md#test-all-local-mcp-servers).

@@ -63,3 +63,5 @@ what_changed_since("2026-07-11")        # what services/autoruns/programs/tasks 
 ## Files
 `drift_mcp_server.py` (FastMCP, 6 tools) · `collectors.py` (4 collectors) · `drift_store.py` (SQLite
 snapshot/diff) · `start_drift_mcp.ps1` / `install_task.ps1` / `uninstall_task.ps1` · `tests/` · `data/`.
+
+Batch-test this server with the [central MCP suite instructions](../README.md#test-all-local-mcp-servers).

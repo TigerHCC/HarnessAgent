@@ -59,3 +59,5 @@ Serves `http://127.0.0.1:8782/mcp`. Uses **psutil** for the socket table + proce
 ## Files
 `netconn_mcp_server.py` (FastMCP, 7 tools) · `netconn_reader.py` (psutil table + pid→exe + svchost→service
 + JSON baselines) · `start_netconn_mcp.ps1` / `install_task.ps1` / `uninstall_task.ps1` · `tests/` · `data/`.
+
+Batch-test this server with the [central MCP suite instructions](../README.md#test-all-local-mcp-servers).
