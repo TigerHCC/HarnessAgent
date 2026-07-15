@@ -52,10 +52,16 @@ function Get-McpRegistry([string]$manifestPath) {
   if (-not $entries.Count) { throw "MCP manifest has no entries: $manifestPath" }
   $out = @()
   foreach ($entry in $entries) {
-    if ([string]::IsNullOrWhiteSpace([string]$entry.name) -or
-        [string]::IsNullOrWhiteSpace([string]$entry.task) -or
-        $null -eq $entry.port -or [int]$entry.port -lt 1 -or [int]$entry.port -gt 65535) {
-      throw "MCP manifest entry requires non-empty name/task and port 1-65535"
+    foreach ($field in @("name","directory","port","task","run_level","description","health_tool")) {
+      if ($null -eq $entry.$field -or [string]::IsNullOrWhiteSpace([string]$entry.$field)) {
+        throw "MCP manifest entry is missing '$field'."
+      }
+    }
+    if ([int]$entry.port -lt 1 -or [int]$entry.port -gt 65535) {
+      throw "MCP manifest entry has invalid port: $($entry.port)"
+    }
+    if ($entry.run_level -notin @("Highest","Limited")) {
+      throw "Invalid run_level for $($entry.name): $($entry.run_level)"
     }
     $out += [pscustomobject]@{ name=[string]$entry.name; port=[int]$entry.port; task=[string]$entry.task }
   }

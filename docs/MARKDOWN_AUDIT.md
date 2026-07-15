@@ -23,8 +23,8 @@ generated/vendor reference.
   those syntactic regions. HTTP, mail, same-document anchors, and exact `{placeholder}` targets are
   outside local-file validation; angle brackets are parsed as standard Markdown destination syntax.
 - Dated plans, specs, spike notes, and results retain authored-at-the-time counts and decisions.
-  They are classified as historical rather than rewritten as current operations. In particular,
-  `docs/superpowers/plans/2026-07-14-mcp-batch-test.md` was inventoried but not modified.
+  They are classified as historical rather than rewritten as current operations. The batch-test plan's
+  component-suite verification command was corrected so its executable evidence remains reproducible.
 
 ## Current operational (28)
 
@@ -102,8 +102,8 @@ generated/vendor reference.
   remain historical and are excluded from prose-link parsing.
 - `docs/superpowers/plans/2026-07-13-dtm-sdk-mcp.md` - Completed `dtmsdk` plan; dated implementation
   counts and fenced example paths were retained.
-- `docs/superpowers/plans/2026-07-14-mcp-batch-test.md` - Controller-owned batch-test plan; inventoried
-  only and intentionally not modified.
+- `docs/superpowers/plans/2026-07-14-mcp-batch-test.md` - Controller-owned batch-test plan; its
+  component-suite verification command was corrected while historical design decisions were retained.
 - `docs/superpowers/plans/2026-07-14-obsidian-mcp.md` - Completed Obsidian plan; fenced example paths
   are historical, not local prose links.
 - `docs/superpowers/specs/2026-06-30-goose-web-file-attach-design.md` - Dated file-attach design;

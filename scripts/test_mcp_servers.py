@@ -17,6 +17,10 @@ from pathlib import Path
 DEFAULT_MANIFEST = Path(__file__).resolve().parents[1] / "config" / "mcp_servers.json"
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "reports" / "mcp"
 MAX_REDIRECTS = 5
+MANIFEST_FIELDS = {
+    "name", "directory", "port", "task", "run_level", "description", "health_tool"
+}
+CANONICAL_PORTS = set(range(8777, 8791))
 
 
 class StageError(Exception):
@@ -26,7 +30,9 @@ class StageError(Exception):
 
 
 def load_manifest(path):
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    entries = json.loads(Path(path).read_text(encoding="utf-8"))
+    _validate_manifest(entries)
+    return entries
 
 
 def _result(response, stage, expected_id):
@@ -91,17 +97,43 @@ def _sse_messages(body):
     return messages
 
 
+def _read_sse_response(response, deadline, expected_id):
+    messages = []
+    data_lines = []
+    while True:
+        _set_read_timeout(response, _remaining(deadline))
+        raw_line = response.readline()
+        if not raw_line:
+            if data_lines:
+                messages.append(json.loads("\n".join(data_lines)))
+            break
+        line = raw_line.decode("utf-8").rstrip("\r\n")
+        if not line:
+            if data_lines:
+                message = json.loads("\n".join(data_lines))
+                messages.append(message)
+                data_lines = []
+                if isinstance(message, dict) and message.get("id") == expected_id:
+                    return message
+            continue
+        if line.startswith(":"):
+            continue
+        field, separator, value = line.partition(":")
+        if field == "data" and separator:
+            data_lines.append(value[1:] if value.startswith(" ") else value)
+    for message in messages:
+        if isinstance(message, dict) and message.get("id") == expected_id:
+            return message
+    if messages:
+        return messages[0]
+    raise ValueError("SSE response contains no data events")
+
+
 def _decode_response(response, deadline, expected_id):
-    body = _read_body(response, deadline).decode("utf-8")
     content_type = response.headers.get("Content-Type", "").lower()
     if "text/event-stream" in content_type:
-        messages = _sse_messages(body)
-        for message in messages:
-            if isinstance(message, dict) and message.get("id") == expected_id:
-                return message
-        if messages:
-            return messages[0]
-        raise ValueError("SSE response contains no data events")
+        return _read_sse_response(response, deadline, expected_id)
+    body = _read_body(response, deadline).decode("utf-8")
     return json.loads(body)
 
 
@@ -552,18 +584,37 @@ def _parse_args(argv):
 def _validate_manifest(entries):
     if not isinstance(entries, list):
         raise ValueError("manifest root must be a list")
+    if len(entries) != 14:
+        raise ValueError(f"manifest must contain exactly 14 entries; found {len(entries)}")
+    names = set()
+    ports = set()
+    tasks = set()
     for index, entry in enumerate(entries):
         if not isinstance(entry, dict):
             raise ValueError(f"manifest server {index} must be an object")
-        name = entry.get("name")
+        for field in MANIFEST_FIELDS:
+            if field not in entry:
+                raise ValueError(f"manifest server {index} is missing required field {field}")
+        name = entry["name"]
         port = entry.get("port")
-        health_tool = entry.get("health_tool")
-        if not isinstance(name, str) or not name:
-            raise ValueError(f"manifest server {index} has an invalid name")
-        if not isinstance(port, int) or not 1 <= port <= 65535:
+        for field in MANIFEST_FIELDS - {"port"}:
+            if not isinstance(entry[field], str) or not entry[field].strip():
+                raise ValueError(f"manifest server {index} has an invalid {field}")
+        if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
             raise ValueError(f"manifest server {index} has an invalid port")
-        if not isinstance(health_tool, str) or not health_tool:
-            raise ValueError(f"manifest server {index} has an invalid health_tool")
+        if entry["run_level"] not in {"Highest", "Limited"}:
+            raise ValueError(f"manifest server {index} has an invalid run_level")
+        if name in names:
+            raise ValueError(f"manifest contains duplicate name: {name}")
+        if port in ports:
+            raise ValueError(f"manifest contains duplicate port: {port}")
+        if entry["task"] in tasks:
+            raise ValueError(f"manifest contains duplicate task: {entry['task']}")
+        names.add(name)
+        ports.add(port)
+        tasks.add(entry["task"])
+    if ports != CANONICAL_PORTS:
+        raise ValueError("manifest must use canonical ports 8777-8790 exactly once")
 
 
 def _print_summary(results, report_paths):
@@ -593,7 +644,6 @@ def main(argv=None) -> int:
         return 2
     try:
         entries = load_manifest(args.manifest)
-        _validate_manifest(entries)
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         print(f"Manifest error ({args.manifest}): {exc}", file=sys.stderr)
         return 2

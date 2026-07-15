@@ -293,7 +293,7 @@ python -m pip install -r requirements.txt
 .\uninstall_task.ps1     # remove that one task
 ```
 
-**Ports exposed:** `127.0.0.1:8777`–`8788` (loopback only; each port bind doubles as that server's single-instance lock).
+**Ports exposed:** `127.0.0.1:8777`–`8790` (loopback only; each port bind doubles as that server's single-instance lock).
 
 **Test all local MCP servers** from a normal, **unelevated** PowerShell session:
 ```powershell
@@ -400,6 +400,6 @@ With telemetry on, Goose would POST usage metadata (model, extension/session nam
 - **Windows goose_web LAN bind (urlacl):** HttpListener on `0.0.0.0` needs an elevated shell OR a one-time `netsh http add urlacl url=http://+:8799/ user=%USERNAME%` (run once, elevated). Binding `127.0.0.1` needs neither.
 - **goose_web security:** with `GOOSE_MODE=auto` the agent auto-runs shell/file tools on the host; bound to `0.0.0.0` anyone reaching the port can run commands. On a shared LAN set `GOOSE_WEB_TOKEN` or bind `127.0.0.1` (a loud yellow warning prints on public bind without a token). Each web message spawns a fresh `goose run`, so every DTM query pays cold start — point `dtm` at the warm `:8765` proxy.
 - **Windows MCP elevation:** the *installer* needs admin (it registers `RunLevel Highest` Scheduled Tasks). At *runtime* only some servers need it, and only for specific data sources — SRUM's `esentutl /vss` copy of the locked `SRUDB.dat`, the Security log (`user_activity`), Prefetch/BAM/ShimCache, the USN journal's raw volume handle, `fltmc`. `netconn`/`perfmon`/`drift`/`winupdate` need none. **Goose itself never needs admin** — loopback HTTP has no UAC boundary. Full table in [`../mcp/README.md`](../mcp/README.md#privileges--what-actually-needs-administrator).
-- **Windows MCP gotchas:** a raw `GET /mcp` returning **HTTP 400 is normal** (the endpoint is up). The Scheduled Tasks trigger **at logon, not at boot**. SRUM is historical (flushed ~hourly) — use `live_snapshot` for "right now"; per-app energy is often 0 on desktops; live wattage is laptop-only. Port-in-use → that bind IS the single-instance lock. The servers have **no auth** and are readable by any local process — read-only, but treat it as a UAC-free window onto admin-level data.
+- **Windows MCP gotchas:** a raw `GET /mcp` returning **HTTP 400 is normal** (the endpoint is up). The Scheduled Tasks trigger **at logon, not at boot**. SRUM is historical (flushed ~hourly) — use `live_snapshot` for "right now"; per-app energy is often 0 on desktops; live wattage is laptop-only. Port-in-use → that bind IS the single-instance lock. The servers have **no auth** and are reachable by any local process. Twelve diagnostic servers expose read-only data, while `dtmsdk` and `obsidian` have confirmation-gated write operations; treat all endpoints as a UAC-free window onto privileged capabilities and data.
 - **Telemetry:** if `GOOSE_TELEMETRY_ENABLED` is ever set `true`, Goose POSTs metadata to `us.i.posthog.com`. Keep it `false` (configs + installers + every script enforce this); prompts/responses stay local regardless.
 - **Misc:** `OPENAI_API_KEY: sk-local` is a dummy (vLLM ignores it, but Goose requires a value). `goose bench` does not exist in 1.39.0 — related commands are `recipe`, `skills`, `review`. `--enable-chunked-prefill` requires vLLM ≥ 0.6.0 (remove on older releases — see compose header comment).

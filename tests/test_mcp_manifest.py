@@ -2,6 +2,7 @@ import json
 import re
 import subprocess
 import tempfile
+import shutil
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -18,6 +19,23 @@ MARKDOWN_LINK = re.compile(
 
 def load_entries():
     return json.loads(MANIFEST.read_text(encoding="utf-8"))
+
+
+def invalid_inventory_cases():
+    cases = {}
+    entries = load_entries()
+    entries[1]["task"] = entries[0]["task"]
+    cases["task"] = entries
+    entries = load_entries()
+    entries[0]["port"] = 9000
+    cases["canonical ports"] = entries
+    entries = load_entries()
+    del entries[0]["health_tool"]
+    cases["health_tool"] = entries
+    entries = load_entries()
+    entries[0]["run_level"] = "Admin"
+    cases["run_level"] = entries
+    return cases
 
 
 def markdown_link_destinations(text):
@@ -67,6 +85,7 @@ def test_manifest_has_all_local_servers():
     entries = load_entries()
     assert len(entries) == 14
     assert len({e["name"] for e in entries}) == 14
+    assert len({e["task"] for e in entries}) == 14
     assert {e["port"] for e in entries} == set(range(8777, 8791))
 
 
@@ -134,6 +153,46 @@ def test_watchdog_rejects_truncated_manifest_without_probing():
     assert completed.returncode != 0
     assert "exactly 14 entries" in completed.stderr
     assert "8777-8790" in completed.stderr
+
+
+def test_watchdog_rejects_invalid_inventory_contract_without_probing():
+    for error_text, entries in invalid_inventory_cases().items():
+        with tempfile.TemporaryDirectory(dir=ROOT / "tests") as directory:
+            manifest = Path(directory) / "mcp_servers.json"
+            manifest.write_text(json.dumps(entries), encoding="utf-8")
+            completed = subprocess.run(
+                [
+                    "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                    str(ROOT / "tools" / "mcp_watchdog" / "mcp_watchdog.ps1"),
+                    "-InventoryOnly", "-ManifestPath", str(manifest),
+                ],
+                capture_output=True,
+                text=True,
+            )
+        assert completed.returncode != 0, error_text
+        assert error_text in completed.stderr, completed.stderr
+
+
+def test_setup_rejects_invalid_inventory_contract_before_installation():
+    for error_text, entries in invalid_inventory_cases().items():
+        with tempfile.TemporaryDirectory(dir=ROOT / "tests") as directory:
+            temporary_root = Path(directory)
+            (temporary_root / "config").mkdir()
+            shutil.copy2(ROOT / "setup_mcp_servers.ps1", temporary_root)
+            (temporary_root / "config" / "mcp_servers.json").write_text(
+                json.dumps(entries), encoding="utf-8"
+            )
+            completed = subprocess.run(
+                [
+                    "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                    str(temporary_root / "setup_mcp_servers.ps1"), "-SkipTasks", "-SkipSysmon",
+                    "-SkipWatchdog",
+                ],
+                capture_output=True,
+                text=True,
+            )
+        assert completed.returncode != 0, error_text
+        assert error_text.lower() in (completed.stdout + completed.stderr).lower()
 
 
 def test_markdown_destination_parser_supports_standard_syntax():

@@ -34,6 +34,8 @@ class FakeMcp:
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1" if owner.mode == "persistent_sse" else "HTTP/1.0"
+
             def do_POST(self):
                 length = int(self.headers.get("Content-Length", "0"))
                 raw_body = self.rfile.read(length)
@@ -209,15 +211,22 @@ class FakeMcp:
                     body = b"event: message\n" + b"data: " + body + b"\n\n"
                 self.send_response(200)
                 response_type = (
-                    "text/event-stream" if owner.mode in {"bad_sse", "complex_sse"}
+                    "text/event-stream"
+                    if owner.mode in {"bad_sse", "complex_sse"}
+                    or (owner.mode == "persistent_sse" and method == "initialize")
                     else owner.content_type
                 )
                 self.send_header("Content-Type", response_type)
                 if method == "initialize":
                     self.send_header("Mcp-Session-Id", "test-session")
-                self.send_header("Content-Length", str(len(body)))
+                if not (owner.mode == "persistent_sse" and method == "initialize"):
+                    self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
-                if owner.mode == "slow_initialize" and method == "initialize":
+                if owner.mode == "persistent_sse" and method == "initialize":
+                    self.wfile.write(b"event: message\ndata: " + body + b"\n\n")
+                    self.wfile.flush()
+                    time.sleep(0.75)
+                elif owner.mode == "slow_initialize" and method == "initialize":
                     for byte in body:
                         self.wfile.write(bytes([byte]))
                         self.wfile.flush()
@@ -330,12 +339,56 @@ def test_run_all_isolates_server_failures(fake_mcp_factory):
     assert [result["status"] for result in results] == ["failed", "passed"]
 
 
-def test_load_manifest_reads_json_entries(tmp_path):
+def canonical_manifest_entries():
+    return [
+        {
+            "name": f"server-{index}",
+            "directory": f"server-{index}",
+            "port": port,
+            "task": f"MCP Server {index}",
+            "run_level": "Highest",
+            "description": f"Server {index}",
+            "health_tool": f"server_{index}_health",
+        }
+        for index, port in enumerate(range(8777, 8791), 1)
+    ]
+
+
+def test_load_manifest_reads_and_validates_canonical_entries(tmp_path):
     manifest = tmp_path / "servers.json"
-    entries = [{"name": "sample", "port": 1234, "health_tool": "sample_health"}]
+    entries = canonical_manifest_entries()
     manifest.write_text(json.dumps(entries), encoding="utf-8")
 
     assert load_engine().load_manifest(manifest) == entries
+
+
+@pytest.mark.parametrize(
+    "mutate,error_text",
+    [
+        (lambda entries: entries.clear(), "exactly 14"),
+        (lambda entries: entries.pop(), "exactly 14"),
+        (lambda entries: entries[1].update(name=entries[0]["name"]), "duplicate name"),
+        (lambda entries: entries[1].update(port=entries[0]["port"]), "duplicate port"),
+        (lambda entries: entries[1].update(task=entries[0]["task"]), "duplicate task"),
+        (lambda entries: entries[0].update(port=9000), "canonical ports"),
+        (lambda entries: entries[0].pop("directory"), "directory"),
+        (lambda entries: entries[0].update(description=""), "description"),
+        (lambda entries: entries[0].update(run_level="Admin"), "run_level"),
+        (lambda entries: entries[0].update(health_tool=" "), "health_tool"),
+    ],
+    ids=[
+        "empty", "wrong-count", "duplicate-name", "duplicate-port", "duplicate-task",
+        "noncanonical-port", "missing-field", "empty-field", "run-level", "health-tool",
+    ],
+)
+def test_load_manifest_rejects_invalid_inventory(tmp_path, mutate, error_text):
+    entries = canonical_manifest_entries()
+    mutate(entries)
+    manifest = tmp_path / "servers.json"
+    manifest.write_text(json.dumps(entries), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=error_text):
+        load_engine().load_manifest(manifest)
 
 
 def test_main_returns_success_and_writes_reports(fake_mcp_factory, tmp_path, capsys):
@@ -355,6 +408,7 @@ def test_main_returns_success_and_writes_reports(fake_mcp_factory, tmp_path, cap
         encoding="utf-8",
     )
     module = load_engine()
+    module.load_manifest = lambda path: json.loads(Path(path).read_text(encoding="utf-8"))
 
     exit_code = module.main(
         [
@@ -403,6 +457,7 @@ def test_main_returns_failure_and_writes_partial_failure_reports(
         encoding="utf-8",
     )
     module = load_engine()
+    module.load_manifest = lambda path: json.loads(Path(path).read_text(encoding="utf-8"))
 
     exit_code = module.main(
         [
@@ -427,7 +482,15 @@ def test_main_returns_failure_and_writes_partial_failure_reports(
     assert "1 passed, 1 failed, 2 total" in stdout
 
 
-@pytest.mark.parametrize("contents", ["{not-json", '{"name": "not-a-list"}'])
+@pytest.mark.parametrize(
+    "contents",
+    [
+        "{not-json",
+        '{"name": "not-a-list"}',
+        "[]",
+        json.dumps(canonical_manifest_entries()[:-1]),
+    ],
+)
 def test_main_returns_usage_error_for_malformed_manifest_without_network(
     tmp_path, monkeypatch, capsys, contents
 ):
@@ -509,6 +572,11 @@ def test_main_maps_all_report_failures_to_exit_two(
     )
     module = load_engine()
     monkeypatch.setattr(module, "run_all", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        module,
+        "load_manifest",
+        lambda path: json.loads(Path(path).read_text(encoding="utf-8")),
+    )
 
     def fail(*args, **kwargs):
         raise ValueError(f"injected {failing_function} failure")
@@ -663,6 +731,21 @@ def test_server_selects_matching_response_from_complex_sse(fake_mcp_factory):
 
     assert result["status"] == "passed"
     assert result["health"]["content"][0]["text"] == '{"ok": true}'
+
+
+def test_server_returns_complete_sse_event_before_persistent_stream_closes(
+    fake_mcp_factory,
+):
+    server = fake_mcp_factory(mode="persistent_sse")
+
+    started = time.monotonic()
+    result = load_engine().test_server(
+        {"name": "sample", "port": server.port, "health_tool": "sample_health"},
+        0.3,
+    )
+
+    assert result["status"] == "passed"
+    assert time.monotonic() - started < 0.7
 
 
 def test_run_all_bounds_trickled_body_and_continues(fake_mcp_factory):
