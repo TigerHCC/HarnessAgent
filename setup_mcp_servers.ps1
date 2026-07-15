@@ -77,30 +77,43 @@ try {
   $manifestEntries = @($decodedManifest | ForEach-Object { $_ })
 }
 catch { Die "Invalid MCP manifest JSON: $_" }
-if ($manifestEntries.Count -ne 14) { Die "MCP manifest must contain 14 entries; found $($manifestEntries.Count)." }
+if ($manifestEntries.Count -ne 14) { Die "MCP manifest must contain exactly 14 entries on canonical ports 8777-8790; found $($manifestEntries.Count) entries." }
 
 $MCPS = New-Object System.Collections.ArrayList
 $seenNames = @{}
 $seenPorts = @{}
 $seenTasks = @{}
+$textFields = @("name","directory","task","run_level","description","health_tool")
+$integerTypes = @([byte],[sbyte],[int16],[uint16],[int32],[uint32],[int64],[uint64])
+$expectedPorts = @(8777..8790)
 foreach ($entry in $manifestEntries) {
   foreach ($field in @("name","directory","port","task","run_level","description","health_tool")) {
-    if ($null -eq $entry.$field -or [string]::IsNullOrWhiteSpace([string]$entry.$field)) {
+    if ($null -eq $entry.$field) {
       Die "MCP manifest entry is missing '$field'."
     }
   }
-  if ($seenNames.ContainsKey($entry.name)) { Die "Duplicate MCP name: $($entry.name)" }
-  if ($seenPorts.ContainsKey([int]$entry.port)) { Die "Duplicate MCP port: $($entry.port)" }
-  if ($seenTasks.ContainsKey($entry.task)) { Die "Duplicate MCP task: $($entry.task)" }
+  foreach ($field in $textFields) {
+    if (-not ($entry.$field -is [string]) -or [string]::IsNullOrWhiteSpace($entry.$field)) {
+      Die "MCP manifest entry has invalid '$field'; expected a non-empty string."
+    }
+  }
+  if ($integerTypes -notcontains $entry.port.GetType()) {
+    Die "MCP manifest entry has invalid 'port'; expected an integer."
+  }
   if ($entry.run_level -notin @("Highest","Limited")) { Die "Invalid run_level for $($entry.name): $($entry.run_level)" }
+  if ($entry.port -notin $expectedPorts) {
+    Die "MCP manifest must use canonical ports 8777-8790 exactly once."
+  }
+  if ($seenNames.ContainsKey($entry.name)) { Die "MCP manifest contains duplicate name: $($entry.name)" }
+  if ($seenPorts.ContainsKey($entry.port)) { Die "MCP manifest contains duplicate port: $($entry.port)" }
+  if ($seenTasks.ContainsKey($entry.task)) { Die "MCP manifest contains duplicate task: $($entry.task)" }
   $seenNames[$entry.name] = $true
-  $seenPorts[[int]$entry.port] = $true
+  $seenPorts[$entry.port] = $true
   $seenTasks[$entry.task] = $true
   [void]$MCPS.Add(@{ name=[string]$entry.name; dir=[string]$entry.directory; port=[int]$entry.port;
     task=[string]$entry.task; runlevel=[string]$entry.run_level; desc=[string]$entry.description;
     health_tool=[string]$entry.health_tool })
 }
-$expectedPorts = @(8777..8790)
 $actualPorts = @($seenPorts.Keys | ForEach-Object { [int]$_ } | Sort-Object)
 if (@(Compare-Object -ReferenceObject $expectedPorts -DifferenceObject $actualPorts).Count) {
   Die "MCP manifest must use canonical ports 8777-8790 exactly once."

@@ -6,6 +6,8 @@ import shutil
 from pathlib import Path
 from urllib.parse import unquote
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "config" / "mcp_servers.json"
@@ -35,6 +37,27 @@ def invalid_inventory_cases():
     entries = load_entries()
     entries[0]["run_level"] = "Admin"
     cases["run_level"] = entries
+    return cases
+
+
+def invalid_inventory_type_cases():
+    cases = []
+
+    def add_case(case_name, field, value, duplicate_value=None):
+        entries = load_entries()
+        entries[0][field] = value
+        if duplicate_value is not None:
+            entries[1][field] = duplicate_value
+        cases.append((case_name, field, entries))
+
+    add_case("string-port", "port", "8777")
+    add_case("integral-decimal-port", "port", 8777.0)
+    add_case("fractional-decimal-port", "port", 8777.5)
+    for field in ("name", "directory", "task", "run_level", "description", "health_tool"):
+        add_case(f"numeric-{field}", field, 123)
+    add_case("coercible-duplicate-name", "name", 123, "123")
+    add_case("coercible-duplicate-task", "task", 123, "123")
+    add_case("coercible-duplicate-port", "port", "8778", 8778)
     return cases
 
 
@@ -193,6 +216,59 @@ def test_setup_rejects_invalid_inventory_contract_before_installation():
             )
         assert completed.returncode != 0, error_text
         assert error_text.lower() in (completed.stdout + completed.stderr).lower()
+
+
+@pytest.mark.parametrize(
+    "case_name,field,entries",
+    invalid_inventory_type_cases(),
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_watchdog_rejects_raw_json_type_coercions_before_inventory_normalization(
+    case_name, field, entries
+):
+    with tempfile.TemporaryDirectory(dir=ROOT / "tests") as directory:
+        manifest = Path(directory) / "mcp_servers.json"
+        manifest.write_text(json.dumps(entries), encoding="utf-8")
+        completed = subprocess.run(
+            [
+                "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                str(ROOT / "tools" / "mcp_watchdog" / "mcp_watchdog.ps1"),
+                "-InventoryOnly", "-ManifestPath", str(manifest),
+            ],
+            capture_output=True,
+            text=True,
+        )
+    assert completed.returncode != 0, case_name
+    assert f"invalid '{field}'" in completed.stderr.lower(), completed.stderr
+
+
+@pytest.mark.parametrize(
+    "case_name,field,entries",
+    invalid_inventory_type_cases(),
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_setup_rejects_raw_json_type_coercions_before_installation(
+    case_name, field, entries
+):
+    with tempfile.TemporaryDirectory(dir=ROOT / "tests") as directory:
+        temporary_root = Path(directory)
+        (temporary_root / "config").mkdir()
+        shutil.copy2(ROOT / "setup_mcp_servers.ps1", temporary_root)
+        (temporary_root / "config" / "mcp_servers.json").write_text(
+            json.dumps(entries), encoding="utf-8"
+        )
+        completed = subprocess.run(
+            [
+                "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                str(temporary_root / "setup_mcp_servers.ps1"), "-SkipTasks", "-SkipSysmon",
+                "-SkipWatchdog",
+            ],
+            capture_output=True,
+            text=True,
+        )
+    assert completed.returncode != 0, case_name
+    output = (completed.stdout + completed.stderr).lower()
+    assert f"invalid '{field}'" in output, output
 
 
 def test_markdown_destination_parser_supports_standard_syntax():

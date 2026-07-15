@@ -49,26 +49,42 @@ function Get-McpRegistry([string]$manifestPath) {
     $entries = @($decoded | ForEach-Object { $_ })
   }
   catch { throw "Invalid MCP manifest at ${manifestPath}: $_" }
-  if (-not $entries.Count) { throw "MCP manifest has no entries: $manifestPath" }
+  if ($entries.Count -ne 14) { throw "MCP manifest must contain exactly 14 entries on canonical ports 8777-8790; found $($entries.Count) entries." }
   $out = @()
+  $seenNames = @{}
+  $seenPorts = @{}
+  $seenTasks = @{}
+  $textFields = @("name","directory","task","run_level","description","health_tool")
+  $integerTypes = @([byte],[sbyte],[int16],[uint16],[int32],[uint32],[int64],[uint64])
+  $expectedPorts = @(8777..8790)
   foreach ($entry in $entries) {
     foreach ($field in @("name","directory","port","task","run_level","description","health_tool")) {
-      if ($null -eq $entry.$field -or [string]::IsNullOrWhiteSpace([string]$entry.$field)) {
+      if ($null -eq $entry.$field) {
         throw "MCP manifest entry is missing '$field'."
       }
     }
-    if ([int]$entry.port -lt 1 -or [int]$entry.port -gt 65535) {
-      throw "MCP manifest entry has invalid port: $($entry.port)"
+    foreach ($field in $textFields) {
+      if (-not ($entry.$field -is [string]) -or [string]::IsNullOrWhiteSpace($entry.$field)) {
+        throw "MCP manifest entry has invalid '$field'; expected a non-empty string."
+      }
+    }
+    if ($integerTypes -notcontains $entry.port.GetType()) {
+      throw "MCP manifest entry has invalid 'port'; expected an integer."
     }
     if ($entry.run_level -notin @("Highest","Limited")) {
       throw "Invalid run_level for $($entry.name): $($entry.run_level)"
     }
+    if ($entry.port -notin $expectedPorts) {
+      throw "MCP manifest must use canonical ports 8777-8790 exactly once."
+    }
+    if ($seenNames.ContainsKey($entry.name)) { throw "MCP manifest contains duplicate name: $($entry.name)" }
+    if ($seenPorts.ContainsKey($entry.port)) { throw "MCP manifest contains duplicate port: $($entry.port)" }
+    if ($seenTasks.ContainsKey($entry.task)) { throw "MCP manifest contains duplicate task: $($entry.task)" }
+    $seenNames[$entry.name] = $true
+    $seenPorts[$entry.port] = $true
+    $seenTasks[$entry.task] = $true
     $out += [pscustomobject]@{ name=[string]$entry.name; port=[int]$entry.port; task=[string]$entry.task }
   }
-  if (@($out.name | Select-Object -Unique).Count -ne $out.Count) { throw "MCP manifest contains duplicate names" }
-  if (@($out.port | Select-Object -Unique).Count -ne $out.Count) { throw "MCP manifest contains duplicate ports" }
-  if (@($out.task | Select-Object -Unique).Count -ne $out.Count) { throw "MCP manifest contains duplicate tasks" }
-  $expectedPorts = @(8777..8790)
   $actualPorts = @($out.port | Sort-Object)
   $portDifference = @(Compare-Object -ReferenceObject $expectedPorts -DifferenceObject $actualPorts)
   if ($out.Count -ne 14 -or $portDifference.Count) {
