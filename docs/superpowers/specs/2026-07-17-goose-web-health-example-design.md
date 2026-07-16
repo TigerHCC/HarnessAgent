@@ -18,9 +18,10 @@ endpoint, configuration field, or persistence behavior is introduced.
 
 ## Implementation
 
-Add one entry to the local `chips` array in `showHero()` in `goose_web/index.html`. Use a JavaScript
-template literal so the prompt's line breaks remain readable in source and are copied into the textarea
-exactly. Reuse the existing chip creation and click handler.
+Extend entries in the local `chips` array in `showHero()` from `[tag, label]` to an optional
+`[tag, label, prompt]` shape. The renderer defaults `prompt` to `label`, so the four existing examples
+keep identical display and click behavior. Add the health entry with its short label and a JavaScript
+template literal for the full prompt, keeping line breaks readable in source and exact in the textarea.
 
 ## Verification
 
