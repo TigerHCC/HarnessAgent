@@ -48,9 +48,9 @@ function Load-WebConfig {
         model           = 'qwen-3.6-chat'
         provider_label  = 'vLLM (OpenAI-compat)'
         backends        = @(
-            @{ name = 'vLLM chat';  url = 'http://192.168.86.44:8000';  health_path = '/v1/models'; role = 'chat'  }
-            @{ name = 'vLLM embed'; url = 'http://192.168.86.44:8001';  health_path = '/v1/models'; role = 'embed' }
-            @{ name = 'Ollama';     url = 'http://192.168.86.44:11434'; health_path = '/api/tags';  role = 'ollama' }
+            @{ name = 'vLLM chat';  url = 'http://100.88.242.174:8000';  health_path = '/v1/models'; role = 'chat'  }
+            @{ name = 'vLLM embed'; url = 'http://100.88.242.174:8001';  health_path = '/v1/models'; role = 'embed' }
+            @{ name = 'Ollama';     url = 'http://100.88.242.174:11434'; health_path = '/api/tags';  role = 'ollama' }
         )
     }
     $cfg = @{}; foreach ($k in $defaults.Keys) { $cfg[$k] = $defaults[$k] }

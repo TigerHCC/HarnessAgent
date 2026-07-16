@@ -2,11 +2,16 @@
 # Goose CLI configuration — WINDOWS CLIENT
 # ============================================================================
 # This machine runs goose; ALL models + the DTM agent live REMOTELY on GB10
-# (192.168.86.44). This is the Windows counterpart of:
+# (Meshnet IP 100.88.242.174; LAN IP 192.168.86.44). This is the Windows counterpart of:
 #   - config/goose_config.yaml  (GB10-local template, dtm uri = 127.0.0.1)
 #   - config/gb10_config.yaml   (snapshot of GB10's own normalized config)
 # Difference that matters on Windows:
-#   - dtm `uri` uses the GB10 LAN IP (192.168.86.44), NOT 127.0.0.1
+#   - all `uri`/HOST values use the GB10 NordVPN Meshnet IP (100.88.242.174),
+#     NOT 127.0.0.1. Meshnet works both at home AND away; the LAN IP
+#     (192.168.86.44) works only at home. Swap back if you drop NordVPN.
+#     NOTE: vLLM :8000/:8001 are reachable over Meshnet only because
+#     config/docker-compose.yaml uses network_mode: host -- bridge-published
+#     ports are dropped by NordVPN's meshnet firewall (FORWARD chain).
 #   - memory `cmd` is the Windows goose.exe path (backslashes)
 #
 # ----------------------------------------------------------------------------
@@ -40,7 +45,7 @@
 # ============================================================
 GOOSE_PROVIDER: openai
 GOOSE_MODEL: qwen-3.6-chat
-OPENAI_HOST: http://192.168.86.44:8000
+OPENAI_HOST: http://100.88.242.174:8000
 OPENAI_BASE_PATH: v1/chat/completions
 OPENAI_API_KEY: sk-local   # dummy; vLLM ignores it but goose requires a value
 
@@ -52,7 +57,7 @@ OPENAI_API_KEY: sk-local   # dummy; vLLM ignores it but goose requires a value
 # ------------------------------------------------------------
 # GOOSE_PROVIDER: ollama
 # GOOSE_MODEL: qwen3.5:9b
-OLLAMA_HOST: http://192.168.86.44:11434
+OLLAMA_HOST: http://100.88.242.174:11434
 OLLAMA_TIMEOUT: 900
 GOOSE_STREAM_TIMEOUT: 900
 OLLAMA_STREAM_TIMEOUT: 900
@@ -92,7 +97,7 @@ extensions:
     description: Computer Controller (web scrape / scripts / PDF-DOCX-XLSX) builtin
 
   # PersonalKnowledge DTM Knowledge Agent over MCP (mcp-proxy on GB10 :8765).
-  # REMOTE client -> use the GB10 LAN IP (NOT 127.0.0.1).
+  # REMOTE client -> use the GB10 Meshnet IP (NOT 127.0.0.1).
   # Goose 1.39 dropped SSE: use type: streamable_http + the /mcp endpoint.
   # Tools: dtm_query, dtm_telemetry_lookup, dtm_triage, dtm_data_feature,
   #        dtm_hw_spec, dtm_health.
@@ -103,11 +108,11 @@ extensions:
     bundled: false
     name: dtm
     enabled: true
-    uri: http://192.168.86.44:8765/mcp
+    uri: http://100.88.242.174:8765/mcp
     headers: {}
     env_keys: []
     timeout: 600
-    description: PersonalKnowledge DTM Knowledge Agent (telemetry/triage/plugin/hw-spec RAG) via streamable_http (mcp-proxy 192.168.86.44:8765)
+    description: PersonalKnowledge DTM Knowledge Agent (telemetry/triage/plugin/hw-spec RAG) via streamable_http (mcp-proxy 100.88.242.174:8765)
 
   # PersonalKnowledge KB MCP -- stateless semantic retrieval (search_kb /
   # get_document / list_sources) over the pk_* ChromaDB collections.
@@ -123,7 +128,7 @@ extensions:
     bundled: false
     name: pk
     enabled: true
-    uri: http://192.168.86.44:8766/mcp
+    uri: http://100.88.242.174:8766/mcp
     headers: {}
     env_keys: []
     timeout: 600

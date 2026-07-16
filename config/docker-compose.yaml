@@ -6,6 +6,17 @@
 #
 # Note: --enable-chunked-prefill with --reasoning-parser requires vLLM >= 0.6.0.
 #       Remove --enable-chunked-prefill if on an older release.
+#
+# Networking: BOTH services use network_mode: host (NOT bridge port publishing).
+#   Why: NordVPN Meshnet on this host drops peer-sourced (100.64.0.0/10) traffic
+#   FORWARDed to Docker bridge subnets (172.16.0.0/12), so bridge-published ports
+#   time out over the Meshnet IP (100.88.242.174) while working on the LAN IP.
+#   Host networking binds vLLM directly on the host (INPUT chain, same path as
+#   Ollama/sshd) => reachable over LAN and Meshnet alike, no NordVPN peer
+#   permissions needed. See https://meshnet.nordvpn.com/troubleshooting/linux
+#   ("Cannot access Docker containers over Meshnet").
+#   Consequences: each service needs a unique --port (chat 8000, embed 8001);
+#   'ports:' must stay removed (incompatible with network_mode: host).
 
 services:
   qwen-chat:
@@ -18,8 +29,7 @@ services:
       - HF_TOKEN=${HF_TOKEN}
     volumes:
       - ${HF_HOME:-/home/nvidia/.cache/huggingface}:/root/.cache/huggingface
-    ports:
-      - "8000:8000"
+    network_mode: host   # see header: bridge publish breaks over NordVPN Meshnet
     # Qwen3.6-35B-A3B-FP8: MoE reasoning model with extended thinking.
     # served-model-name must match config.yaml generation.model
     # Goose tool-calling: qwen-3.6-chat emits Qwen XML tool format
@@ -36,6 +46,7 @@ services:
       --enable-chunked-prefill
       --max-num-seqs 256
       --disable-log-stats
+      --port 8000
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
@@ -54,8 +65,7 @@ services:
       - HF_TOKEN=${HF_TOKEN}
     volumes:
       - ${HF_HOME:-/home/nvidia/.cache/huggingface}:/root/.cache/huggingface
-    ports:
-      - "8001:8000"
+    network_mode: host   # see header; host netns => must use its own port 8001
     # Qwen3-Embedding-4B: 2560-dim — identical dimensions to Ollama qwen3-embedding:latest,
     # so switching from Ollama to this model does NOT require a ChromaDB rebuild.
     # served-model-name must match config.yaml embedding.model
@@ -65,9 +75,10 @@ services:
       --gpu-memory-utilization 0.20
       --max-num-seqs 512
       --disable-log-stats
+      --port 8001
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8001/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
