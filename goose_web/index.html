@@ -246,6 +246,13 @@
     body.navopen .scrim{display:block;position:fixed;inset:0;background:#0008;z-index:20}
     .top .menu{display:block}
     .wrap{padding:24px 16px 40px}
+    .hero{padding:3vh 0 0}
+    .hero .mark{width:56px;height:56px;border-radius:16px;margin-bottom:12px;font-size:26px}
+    .hero h1{font-size:26px}
+    .hero p{font-size:13.5px;line-height:1.5}
+    .hero .chips{gap:8px;margin-top:16px}
+    .hero .chip{flex:1 1 calc(50% - 4px);max-width:calc(50% - 4px);padding:10px 11px;font-size:12px;line-height:1.35}
+    .hero .chip b{font-size:11px;margin-bottom:2px}
   }
 </style>
 </head>
@@ -402,11 +409,17 @@ function showHero(){
     ["telemetry","Which telemetry datatypes cover battery health and charge cycles?"],
     ["triage","A laptop runs hot and the battery drains fast — triage it"],
     ["developer","Create hello.txt in the workspace with today's date"],
+    ["health","Perform a system health check on this Windows machine:",`Perform a system health check on this Windows machine:
+1.Check for any handle/memory leaks (identify the specific process/driver).
+2.Identify which third-party AV/VPN drivers are hooked into the file and network paths.
+3.Check if there have been any recent update failures or system crashes.
+4.Determine which directories are experiencing excessive write activity.
+Use the diagnostic tools available to you to investigate, and finally list the suspicious items along with their corresponding processes/drivers.`],
   ];
   const cw=$("#heroChips");
-  chips.forEach(([tag,text])=>{
-    const c=el("button","chip");c.innerHTML="<b>"+tag+"</b>"+esc(text);
-    c.onclick=()=>{input.value=text;input.focus();autoGrow();};cw.appendChild(c);
+  chips.forEach(([tag,label,prompt=label])=>{
+    const c=el("button","chip");c.innerHTML="<b>"+tag+"</b>"+esc(label);
+    c.onclick=()=>{input.value=prompt;input.focus();autoGrow();};cw.appendChild(c);
   });
 }
 function newChat(){
