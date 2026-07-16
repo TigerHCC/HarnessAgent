@@ -81,14 +81,15 @@ change DTP configuration, so every command outside a per-util safe allowlist req
 confirmation token. Requires Administrator and a running Dell TechHub service. Paths live in
 `dtm_sdk/config.json` (one-line redeploy via `samples_root`). See [`dtm_sdk/README.md`](dtm_sdk/README.md).
 
-### Obsidian vault MCP (`windows_obsidian/`, 127.0.0.1:8790) — the only unelevated MCP
+### Obsidian vault MCP (`windows_obsidian/`, 127.0.0.1:8790) — the only Limited task
 
 `obsidian` gives the harness file-level access to an Obsidian vault (read/search/list, wikilink &
 backlink graph, tag & frontmatter queries) plus **confirmation-gated** create/update of markdown notes.
 Filesystem-based (no Obsidian app/plugin needed); complementary to the `dtm` RAG (semantic) — this is
-exact structured access. **Runs unelevated** (RunLevel Limited) — it only reads/writes user files. Every
-path is confined to the vault's `.md` files (no traversal/symlink escape); there is no delete and no
-silent overwrite. Vault path lives in `windows_obsidian/config.json` (one-line redeploy). See
+exact structured access. Its **scheduled/logon launches run unelevated** (`RunLevel Limited`) because it
+only reads/writes user files. An immediate start by elevated suite setup inherits the setup process token
+until Obsidian is restarted through its Scheduled Task or at the next logon. Every path is confined to the
+vault's `.md` files (no traversal/symlink escape); there is no delete and no silent overwrite. Vault path lives in `windows_obsidian/config.json` (one-line redeploy). See
 [`windows_obsidian/README.md`](windows_obsidian/README.md).
 
 **One-click setup on a new machine** (elevated, idempotent — installs Python deps, registers + starts a
@@ -102,6 +103,31 @@ Tasks) · `-NoStart` (register but don't launch) · `-SkipConfig` (leave `config
 `-SkipSysmon` (don't install/refresh Sysmon) · `-ConfigPath <path>` (non-default goose config) ·
 **`-Uninstall`** (stop the servers, unregister the Scheduled Tasks, and strip the extension blocks from
 `config.yaml` — backed up to `config.yaml.bak-mcpuninstall` first; pip packages and Sysmon are left alone).
+
+The suite installer and every standalone `install_task.ps1` create the same launch chain: an `AtLogOn`
+Scheduled Task for the current user with `LogonType Interactive` starts
+`../scripts/start_mcp_hidden.ps1` through PowerShell with `-WindowStyle Hidden`; the launcher then runs
+the server's Python entry point. The setup script's immediate start uses that hidden launcher too. The
+task principal and each existing run level are unchanged (`Highest`, except `obsidian` is `Limited`).
+
+The task run level applies when Task Scheduler launches the server. Because suite setup itself runs
+elevated, its direct immediate start inherits the setup token; this means an immediately started Obsidian
+process is elevated until it is restarted through its `RunLevel Limited` task or at the next logon.
+
+Scheduled launches append separate streams to the repository's `logs/mcp/` directory:
+
+- `logs/mcp/<name>.stdout.log`
+- `logs/mcp/<name>.stderr.log`
+
+If either active log is larger than 10 MiB when the launcher next starts, that file is moved to `.1`
+(for example, `eventlog.stdout.log.1`) before output resumes. Rotation is independent for stdout and
+stderr, and only one rotated generation is retained. There is no visible MCP console to inspect, so
+tail the logs from the repository root when a task exits or a port does not come up:
+
+```powershell
+Get-Content .\logs\mcp\eventlog.stdout.log -Tail 50 -Wait
+Get-Content .\logs\mcp\eventlog.stderr.log -Tail 50 -Wait
+```
 
 ### Test all local MCP servers
 
@@ -134,10 +160,15 @@ in [`../docs/windows-diagnostic-mcp-candidates.md`](../docs/windows-diagnostic-m
 Three separate things, often conflated:
 
 1. **The installer needs admin.** `setup_mcp_servers.ps1` (and each `install_task.ps1`) registers a
-   `RunLevel Highest` Scheduled Task, which requires an elevated shell. This says nothing about runtime.
-2. **The servers are *started* elevated** — the task's trigger is **`-AtLogOn`** (not at boot) running as
-   **your own account** with `RunLevel Highest`, so they come up silently (no UAC prompt) when you log in.
-   A machine that boots but is never logged into runs none of them.
+   Scheduled Task: 13 use `RunLevel Highest`, while `obsidian` uses `RunLevel Limited`. Registration
+   requires an elevated shell; this says nothing about runtime.
+2. **Thirteen servers are *started* elevated.** Their tasks trigger at **`-AtLogOn`** (not at boot) as
+   **your own account** with `LogonType Interactive` and `RunLevel Highest`, so they come up silently (no
+   UAC prompt or visible console) through the hidden PowerShell launcher when you log in. `obsidian` is
+   the scheduled-task exception: it retains `RunLevel Limited` and starts unelevated as the current user
+   at logon. An immediate start by elevated suite setup inherits the elevated setup token until Obsidian
+   is restarted through its task or at the next logon. A machine that boots but is never logged into runs
+   none of them.
 3. **Goose never needs admin.** It runs unelevated and reaches every server over loopback HTTP
    (`streamable_http`). A TCP socket has no UAC/UIPI boundary, so an unprivileged client talking to an
    elevated server is fine — that separation is the whole point of the design.
@@ -158,22 +189,25 @@ failing outright:
 | `procinspect` | no | psutil / Restart Manager / wait-chain all work unelevated; unqueryable threads are reported, not fatal. |
 | `netconn` · `perfmon` · `drift` · `winupdate` | **no** | No admin gate anywhere in their code. |
 | `dtmsdk` (8789) | at runtime, yes | The DTP utils require Administrator. (The installer registers its task RunLevel Highest.) |
-| `obsidian` (8790) | **never** | Only reads/writes user files in the vault. Its task runs **RunLevel Limited** (unelevated) — the only server that does. |
+| `obsidian` (8790) | **never required** | Only reads/writes user files in the vault. Scheduled/logon launches use **RunLevel Limited** and are unelevated. An immediate start by elevated suite setup inherits the setup token until a task/logon restart. |
 
 #### FAQ
 
-**Q: Goose runs unelevated but the MCP servers run elevated. Does that break Goose's ability to call them?**
-No. The servers are separate processes reached over loopback HTTP (`streamable_http`), not in-process
-libraries. Goose just sends an HTTP request to `127.0.0.1:87xx` — and a **TCP socket has no UAC/UIPI
-boundary** (UIPI restricts window messages, not sockets). An unprivileged client connecting to a port
-opened by an elevated process is completely normal. Keeping the elevation on the server side, so the agent
-never needs it, is the *point* of this architecture.
+**Q: Goose runs unelevated while 13 MCP tasks are Highest and Obsidian's task is Limited. Can Goose call all of them?**
+Yes. All 14 servers are separate processes reached over loopback HTTP (`streamable_http`), not in-process
+libraries. Goose just sends an HTTP request to `127.0.0.1:87xx`. For the 13 elevated servers, a **TCP
+socket has no UAC/UIPI boundary** (UIPI restricts window messages, not sockets), so an unelevated client
+can connect normally. Obsidian's `RunLevel Limited` task also launches it unelevated as the current user.
+The exception is the suite installer's direct immediate start: when setup is elevated, that child inherits
+the elevated setup token until restarted through the Limited task or at the next logon. Keeping scheduled
+elevation confined to the 13 `RunLevel Highest` tasks is the point of this architecture.
 
 **Q: The Scheduled Tasks launch the servers with admin rights at system boot, right?**
-Half right. They run **elevated** (`RunLevel Highest`, and Scheduled Tasks elevate *silently* — no UAC
-prompt), as **your own user account** (not `SYSTEM`), so your account must be in Administrators. But the
-trigger is **`-AtLogOn`, not `-AtStartup`**: they start **when you log in**, not when the machine boots. A
-box that powers on and sits at the login screen is running none of them.
+Mostly wrong. Thirteen tasks run **elevated** (`RunLevel Highest`, and Scheduled Tasks elevate *silently*
+— no UAC prompt); `obsidian`'s task remains `RunLevel Limited` and launches it unelevated. All run as
+**your own user account** (not `SYSTEM`), and the trigger is **`-AtLogOn`, not `-AtStartup`**: they start
+**when you log in**, not when the machine boots. A box that powers on and sits at the login screen is
+running none of them.
 
 This is deliberate. Switching to `-AtStartup` + `SYSTEM` would change what the servers *see*: `exec`'s
 UserAssist and `drift`'s HKCU autoruns read the **current user's** registry hive, so under `SYSTEM` they

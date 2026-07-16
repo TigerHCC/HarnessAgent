@@ -121,9 +121,10 @@ replaced.
 
 ## Runtime notes
 
-- **Unelevated by design.** The server only reads/writes user-owned files, so the scheduled task is
-  `RunLevel Limited` and the start script has no elevation check. It is the only MCP in the suite that
-  runs unelevated.
+- **Limited scheduled launch by design.** The server only reads/writes user-owned files, so its task is
+  `RunLevel Limited`; scheduled/logon launches are unelevated. The start script has no elevation check and
+  inherits its caller's token. Consequently, a direct immediate start by elevated suite setup remains
+  elevated until Obsidian is restarted through its task or at the next logon.
 - **Atomic writes.** `write_note` writes to a `*.tmp` sibling with `encoding="utf-8", newline=""` and
   `os.replace`s it into place, so a note is never left half-written.
 - **Lazy config.** `cfg()` loads `config.json` on first use, so a bad config surfaces through

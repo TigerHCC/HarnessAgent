@@ -12,6 +12,27 @@ all passed, `1` for one or more server failures, and `2` for a test setup or rep
 Degraded health data is retained in the report and is distinct from a transport, protocol, or
 tool-call failure. Architecture: [`docs/MODULE_RELATIONSHIPS.md`](docs/MODULE_RELATIONSHIPS.md).
 
+### Scheduled MCP startup and logs
+
+The Windows MCP Scheduled Tasks trigger at user logon, not system startup. They run as the current user
+with `LogonType Interactive` and retain each server's configured `Highest` or `Limited` run level. Each
+task starts `scripts/start_mcp_hidden.ps1` in a hidden PowerShell window; the launcher then runs the
+Python server, so no MCP console window remains visible.
+
+Launcher output is appended separately under `logs/mcp/`:
+
+- `logs/mcp/<name>.stdout.log`
+- `logs/mcp/<name>.stderr.log`
+
+At the next launch, each log larger than 10 MiB is moved to its `.1` generation (for example,
+`srum.stderr.log.1`) before a new active log is opened. Only one rotated generation is retained. Tail a
+server's output from the repository root with:
+
+```powershell
+Get-Content .\logs\mcp\srum.stdout.log -Tail 50 -Wait
+Get-Content .\logs\mcp\srum.stderr.log -Tail 50 -Wait
+```
+
 The DTM agent is wired into Goose as the `dtm` extension. By default it is
 `type: streamable_http` pointing at `http://127.0.0.1:8765/mcp`, so it needs the
 **`dtm-mcp-proxy` systemd unit** (binds `:8765`) to be up — it is *not* a Goose

@@ -8,7 +8,9 @@ generated/vendor reference.
 ## Findings and policy
 
 - Current local MCP truth is the 14-entry `config/mcp_servers.json`: ports 8777-8790, twelve
-  read-only diagnostic servers, confirmation-gated `dtmsdk`, and unelevated `obsidian`.
+  read-only diagnostic servers, confirmation-gated `dtmsdk`, and confirmation-gated `obsidian` whose
+  Scheduled Task is `RunLevel Limited`. Its scheduled/logon launches are unelevated; an immediate start
+  by elevated suite setup inherits the setup token until restarted through the task or at next logon.
 - Current entry points needed batch-test instructions. They now document the safe MCP handshake,
   unelevated client, default `reports/mcp/` artifacts, exit codes 0/1/2, and degraded health versus
   transport/protocol/tool-call failure.
@@ -59,7 +61,7 @@ generated/vendor reference.
 - `mcp/windows_filterstack/README.md` - Current filter-stack MCP usage; added a central batch-test backlink.
 - `mcp/windows_memstate/README.md` - Current memory-state MCP usage; added a central batch-test backlink.
 - `mcp/windows_netconn/README.md` - Current network MCP usage; added a central batch-test backlink.
-- `mcp/windows_obsidian/README.md` - Current unelevated vault MCP usage; added a central batch-test backlink.
+- `mcp/windows_obsidian/README.md` - Current Limited-task vault MCP usage; added a central batch-test backlink.
 - `mcp/windows_perfmon/README.md` - Current performance MCP usage; added a central batch-test backlink.
 - `mcp/windows_procinspect/README.md` - Current process MCP usage; added a central batch-test backlink.
 - `mcp/windows_srum/README.md` - Current SRUM MCP usage; added a central batch-test backlink.

@@ -18,3 +18,6 @@ workspace/uploads/
 
 # MCP batch test reports
 /reports/mcp/
+
+# MCP server logs
+/logs/mcp/

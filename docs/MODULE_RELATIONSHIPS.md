@@ -78,16 +78,23 @@ flowchart TB
     Batch["test_mcp_servers.ps1\nand scripts/test_mcp_servers.py"]
     Reports["reports/mcp/\nJSON and Markdown"]
     Config["config/windows_config.yaml"]
-    Tasks["Windows Scheduled Tasks\nstart at user logon"]
+    Tasks["Windows Scheduled Tasks\nAtLogOn, current user\nInteractive logon"]
+    Launcher["scripts/start_mcp_hidden.ps1\nhidden PowerShell launcher"]
+    Stdout["logs/mcp/<name>.stdout.log\n10 MiB, one .1 generation"]
+    Stderr["logs/mcp/<name>.stderr.log\n10 MiB, one .1 generation"]
     Goose["Goose CLI"]
 
     Manifest -.->|"server metadata"| Setup
     Manifest -.->|"test targets and health tools"| Batch
     Setup -.->|"pip install requirements"| PyDeps["Python dependencies"]
-    Setup -.->|"register/start"| Tasks
+    Setup -.->|"register"| Tasks
+    Setup -.->|"immediate hidden start\ninherits setup token"| Launcher
     Setup -.->|"register extensions"| Config
     Config -.-> Goose
-    Tasks --> Servers
+    Tasks -->|"hidden PowerShell action"| Launcher
+    Launcher -->|"run Python MCP"| Servers
+    Launcher -->|"append/rotate"| Stdout
+    Launcher -->|"append/rotate"| Stderr
     Goose -->|"MCP over 127.0.0.1"| Servers
     Batch -->|"initialize, list, health call"| Servers
     Batch -->|"write"| Reports
@@ -140,6 +147,10 @@ flowchart TB
         Obs --> Tokens["tokens.py\nconfirmation tokens"]
     end
 ```
+
+The immediate-start edge inherits the setup process token. Because suite setup runs elevated, an
+install-time Obsidian process is elevated even though its Scheduled Task remains `RunLevel Limited`.
+Obsidian returns to an unelevated token when restarted through that task or at the next logon.
 
 ## 3. Third-party software relationships
 

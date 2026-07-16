@@ -49,10 +49,10 @@ HarnessAgent wires the [Goose](https://github.com/aaif-goose/goose) CLI/agent to
 | PK mcp-proxy | GB10 / Linux | `http://127.0.0.1:8766/mcp` (`/sse` legacy) | **8766** |
 | Windows diagnostic MCP suite (12) | **Windows only** | `http://127.0.0.1:8777…8788/mcp` (loopback) | **8777–8788** |
 | `dtmsdk` MCP (DTP Sample/SDK utils) | **Windows only** | `http://127.0.0.1:8789/mcp` (loopback) | **8789** |
-| `obsidian` MCP (vault, unelevated) | **Windows only** | `http://127.0.0.1:8790/mcp` (loopback) | **8790** |
+| `obsidian` MCP (vault; task is Limited) | **Windows only** | `http://127.0.0.1:8790/mcp` (loopback) | **8790** |
 | goose_web UI | Either | `http://0.0.0.0:8799` | **8799** |
 
-The 12 diagnostic servers, in port order: `srum` 8777 · `eventlog` 8778 · `crash` 8779 · `exec` 8780 · `drift` 8781 · `netconn` 8782 · `perfmon` 8783 · `disk` 8784 · `procinspect` 8785 · `memstate` 8786 · `filterstack` 8787 · `winupdate` 8788. Plus `dtmsdk` 8789 (DTP utils — not read-only, confirmation-gated) and `obsidian` 8790 (vault read/write — gated, and the only server that runs unelevated). All 14 install via `setup_mcp_servers.ps1`.
+The 12 diagnostic servers, in port order: `srum` 8777 · `eventlog` 8778 · `crash` 8779 · `exec` 8780 · `drift` 8781 · `netconn` 8782 · `perfmon` 8783 · `disk` 8784 · `procinspect` 8785 · `memstate` 8786 · `filterstack` 8787 · `winupdate` 8788. Plus `dtmsdk` 8789 (DTP utils — not read-only, confirmation-gated) and `obsidian` 8790 (vault read/write — gated, and the only server with a `RunLevel Limited` Scheduled Task). All 14 install via `setup_mcp_servers.ps1`.
 
 > The diagnostic suite is **Windows-only** — it reads live Windows data (`SRUDB.dat`, the Event Log, WER dumps, Prefetch, the USN journal, kernel pool tags, the minifilter stack…) and has no Linux equivalent. Everything else is GB10/Linux, except the Goose CLI and goose_web which run on either box and connect to the GB10 model server.
 
@@ -264,8 +264,9 @@ Confirm config landed and contains `GOOSE_TELEMETRY_ENABLED: false` (Linux `~/.c
 ## Step 5 — Enable the local Windows MCP suite (14 servers)
 
 **Windows only** (`linux_steps` empty by design). Fourteen loopback-only FastMCP servers on
-`8777`–`8790`: twelve read-only diagnostic servers, confirmation-gated `dtmsdk`, and unelevated,
-confirmation-gated `obsidian`. Goose runs **unprivileged** and talks to them over loopback HTTP.
+`8777`–`8790`: twelve read-only diagnostic servers, confirmation-gated `dtmsdk`, and
+confirmation-gated `obsidian` with a `RunLevel Limited` Scheduled Task. Goose runs **unprivileged** and
+talks to them over loopback HTTP.
 **Requires Step 4 (Install Goose) done first** — the installer registers extensions into a config
 that must already exist. The canonical list is [`../config/mcp_servers.json`](../config/mcp_servers.json).
 
@@ -283,6 +284,18 @@ Flags: `-SkipDeps` · `-SkipTasks` · `-NoStart` · `-SkipConfig` · `-ConfigPat
 **Why elevated — and what that does *not* mean.** Admin is needed to *register* a `RunLevel Highest` Scheduled Task, and by several servers at *runtime* for specific data sources (SRUM's SYSTEM-locked `SRUDB.dat`, the Security event log, Prefetch/BAM/ShimCache, the USN journal's raw volume handle, `fltmc`). It is **not** needed by Goose, which stays unelevated — a TCP socket has no UAC boundary. Four of the twelve (`netconn`, `perfmon`, `drift`, `winupdate`) need no admin at all, and the rest gate only the affected tools and degrade gracefully. Full table: [`../mcp/README.md`](../mcp/README.md#privileges--what-actually-needs-administrator).
 
 > The trigger is **at logon**, not at boot — a machine that boots but is never logged into starts none of them.
+
+Each task runs as the **current user** with `LogonType Interactive` and starts
+`scripts/start_mcp_hidden.ps1` through PowerShell with `-WindowStyle Hidden`; the launcher then runs the
+Python MCP server. The installer's immediate starts use the same hidden path, so no MCP console window
+is left open. Standard output and errors append separately to `logs/mcp/<name>.stdout.log` and
+`logs/mcp/<name>.stderr.log`. At the next launch, a log larger than 10 MiB is moved to its `.log.1` file;
+stdout and stderr rotate independently and only one rotated generation is retained.
+
+> **Obsidian privilege nuance:** its Scheduled Task and logon launches use `RunLevel Limited` and are
+> unelevated. The one-click setup runs elevated and starts servers directly unless `-NoStart` is used, so
+> an immediate install-time Obsidian process inherits the elevated setup token. It remains elevated until
+> Obsidian is restarted through its Scheduled Task or at the next logon; the task definition stays Limited.
 
 **Per-server alternative** (any of the 12, e.g. `windows_srum`):
 ```powershell
@@ -401,5 +414,6 @@ With telemetry on, Goose would POST usage metadata (model, extension/session nam
 - **goose_web security:** with `GOOSE_MODE=auto` the agent auto-runs shell/file tools on the host; bound to `0.0.0.0` anyone reaching the port can run commands. On a shared LAN set `GOOSE_WEB_TOKEN` or bind `127.0.0.1` (a loud yellow warning prints on public bind without a token). Each web message spawns a fresh `goose run`, so every DTM query pays cold start — point `dtm` at the warm `:8765` proxy.
 - **Windows MCP elevation:** the *installer* needs admin (it registers `RunLevel Highest` Scheduled Tasks). At *runtime* only some servers need it, and only for specific data sources — SRUM's `esentutl /vss` copy of the locked `SRUDB.dat`, the Security log (`user_activity`), Prefetch/BAM/ShimCache, the USN journal's raw volume handle, `fltmc`. `netconn`/`perfmon`/`drift`/`winupdate` need none. **Goose itself never needs admin** — loopback HTTP has no UAC boundary. Full table in [`../mcp/README.md`](../mcp/README.md#privileges--what-actually-needs-administrator).
 - **Windows MCP gotchas:** a raw `GET /mcp` returning **HTTP 400 is normal** (the endpoint is up). The Scheduled Tasks trigger **at logon, not at boot**. SRUM is historical (flushed ~hourly) — use `live_snapshot` for "right now"; per-app energy is often 0 on desktops; live wattage is laptop-only. Port-in-use → that bind IS the single-instance lock. The servers have **no auth** and are reachable by any local process. Twelve diagnostic servers expose read-only data, while `dtmsdk` and `obsidian` have confirmation-gated write operations; treat all endpoints as a UAC-free window onto privileged capabilities and data.
+- **Windows MCP task logs:** the current-user `AtLogOn` tasks use the hidden PowerShell launcher, so there is no server console to inspect. From the repository root, follow a server with `Get-Content .\logs\mcp\srum.stdout.log -Tail 50 -Wait` and `Get-Content .\logs\mcp\srum.stderr.log -Tail 50 -Wait`. Logs rotate independently to `.log.1` when larger than 10 MiB at the next launch.
 - **Telemetry:** if `GOOSE_TELEMETRY_ENABLED` is ever set `true`, Goose POSTs metadata to `us.i.posthog.com`. Keep it `false` (configs + installers + every script enforce this); prompts/responses stay local regardless.
 - **Misc:** `OPENAI_API_KEY: sk-local` is a dummy (vLLM ignores it, but Goose requires a value). `goose bench` does not exist in 1.39.0 — related commands are `recipe`, `skills`, `review`. `--enable-chunked-prefill` requires vLLM ≥ 0.6.0 (remove on older releases — see compose header comment).

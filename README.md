@@ -34,7 +34,9 @@ Validated on the Windows 11 dev box on 2026-06-28, and re-validated the same day
     disk/USN, process inspection, memory attribution, filter stack, and Windows-Update history.
   - **`dtmsdk`** (8789) — wraps the DTP Sample/SDK utilities; **not read-only** (per-command confirmation-gated).
   - **`obsidian`** (8790) — file-level access to an Obsidian vault (read/search/link-graph + gated
-    create/update); the only server that runs **unelevated**.
+    create/update); the only server with a **RunLevel Limited Scheduled Task**. Its scheduled/logon
+    launches are unelevated; an immediate start by elevated suite setup inherits the setup token until
+    Obsidian is restarted through its task or at the next logon.
 
   See [`mcp/README.md`](mcp/README.md) — including [which of them actually need Administrator](mcp/README.md#privileges--what-actually-needs-administrator)
   — and the roadmap in [`docs/windows-diagnostic-mcp-candidates.md`](docs/windows-diagnostic-mcp-candidates.md).
@@ -100,6 +102,17 @@ After `setup_goose.ps1`, install the 14 local MCP servers (elevated, idempotent 
 registers + starts a logon Scheduled Task per server, and adds each extension to `config.yaml`):
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\setup_mcp_servers.ps1
+```
+Each task keeps the `AtLogOn` trigger and runs interactively as the current user. Its action starts
+`scripts/start_mcp_hidden.ps1` in a hidden PowerShell window, which launches the Python MCP server and
+appends output to `logs/mcp/<name>.stdout.log` and `logs/mcp/<name>.stderr.log`. When either log is larger
+than 10 MiB at the next launch, it is rotated independently to the corresponding `.log.1` file; one
+rotated generation is retained.
+
+Because scheduled MCPs have no visible console, tail their logs when troubleshooting:
+```powershell
+Get-Content .\logs\mcp\srum.stdout.log -Tail 50 -Wait
+Get-Content .\logs\mcp\srum.stderr.log -Tail 50 -Wait
 ```
 This also installs **Sysmon** (kernel driver + audit config, enriching the `eventlog` MCP) — a
 security-relevant change that accepts the Sysinternals EULA; `-SkipSysmon` opts out. See

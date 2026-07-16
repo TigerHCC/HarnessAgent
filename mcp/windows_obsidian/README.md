@@ -13,9 +13,10 @@ notes by meaning; use `obsidian` to read, relate, and edit them precisely.
 
 Three properties define the server, and they hold for every call:
 
-- **Runs unelevated.** The scheduled task is registered `RunLevel Limited` (not `Highest`) and the
-  start script has no elevation check — it only reads and writes files the logged-in user already owns,
-  so it needs no Administrator rights. This is the only MCP in the suite that runs unelevated.
+- **Scheduled/logon launches run unelevated.** The task is registered `RunLevel Limited` (not `Highest`)
+  and the server needs no Administrator rights. The start script has no elevation check and inherits its
+  caller's token. Therefore, an immediate start by elevated suite setup is elevated until Obsidian is
+  restarted through its Scheduled Task or at the next logon.
 - **Write-gated.** `obsidian_create` and `obsidian_update` never write on the first call. They return a
   single-use, content-bound confirm token; you must call again with that token to actually write. There
   is **no delete tool** and **no silent overwrite**.
@@ -183,18 +184,20 @@ server re-reads config on start).
 
 ---
 
-## Runs unelevated
+## Scheduled launches run unelevated
 
-This server needs **no Administrator rights**. It only reads and writes files the logged-in user
-already owns, so:
+This server needs **no Administrator rights**, but its effective token depends on who starts it. It only
+reads and writes files the logged-in user already owns, so:
 
-- `start_obsidian_mcp.ps1` has **no elevation check** — it just launches the server.
+- `start_obsidian_mcp.ps1` has **no elevation check** — it launches with the calling shell's token.
 - The scheduled task is registered with **`RunLevel Limited`** and an `-AtLogOn` trigger as the current
   user, so it comes up unelevated when you log in.
+- The elevated repo-wide setup starts servers directly unless `-NoStart` is used. That immediate Obsidian
+  child inherits the elevated setup token until restarted through the Limited task or at the next logon.
 
 (Registering *any* scheduled task is itself a Windows operation that requires an elevated shell, but the
-task it registers — and therefore the running server — is unelevated. Goose reaches it over loopback
-HTTP, which has no UAC/UIPI boundary, so an unelevated agent talking to it is fine.)
+task it registers launches Obsidian unelevated. Goose reaches it over loopback HTTP, which has no
+UAC/UIPI boundary, so an unelevated agent talking to it is fine.)
 
 ---
 
@@ -217,6 +220,10 @@ into goose's `config.yaml` (it honors the per-server `runlevel`, so `obsidian` i
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\..\..\setup_mcp_servers.ps1   # add -Uninstall to remove
 ```
+
+Without `-NoStart`, that elevated setup process also starts Obsidian immediately, and the child inherits
+its elevated token. Restart Obsidian through `Obsidian-MCP` (or wait for the next logon) to run it under
+the task's Limited token.
 
 To run it standalone in the foreground:
 

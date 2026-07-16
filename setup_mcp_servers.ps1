@@ -68,6 +68,7 @@ function Die($m){ Write-Host "[X] $m" -ForegroundColor Red; exit 1 }
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $mcpRoot = Join-Path $here "mcp"
+$launcher = Join-Path $here "scripts\start_mcp_hidden.ps1"
 
 # --- MCP registry: name, dir, port, scheduled-task name, config description ---
 $manifestPath = Join-Path $here "config\mcp_servers.json"
@@ -118,6 +119,11 @@ $actualPorts = @($seenPorts.Keys | ForEach-Object { [int]$_ } | Sort-Object)
 if (@(Compare-Object -ReferenceObject $expectedPorts -DifferenceObject $actualPorts).Count) {
   Die "MCP manifest must use canonical ports 8777-8790 exactly once."
 }
+
+. (Join-Path $here "scripts\mcp_task_helpers.ps1")
+$powershell = (Get-Command powershell -ErrorAction SilentlyContinue).Source
+if (-not $powershell) { Die "Windows PowerShell not found on PATH." }
+$logRoot = Join-Path $here "logs\mcp"
 
 $mode = if ($Uninstall) { "UNINSTALL" } else { "setup" }
 Write-Host "=== HarnessAgent MCP servers $mode (14: 12 diagnostic + dtmsdk + obsidian) ===" -ForegroundColor Magenta
@@ -232,7 +238,8 @@ foreach ($m in $MCPS) {
 
   if (-not $SkipTasks) {
     Info "$($m.name): registering Scheduled Task '$($m.task)' (elevated, at logon)..."
-    $action = New-ScheduledTaskAction -Execute $py -Argument "`"$server`"" -WorkingDirectory $dir
+    $action = New-McpScheduledTaskAction -PowerShellPath $powershell -LauncherPath $launcher `
+      -PythonPath $py -ServerPath $server -WorkingDirectory $dir -Name $m.name -LogDirectory $logRoot
     $trigger = New-ScheduledTaskTrigger -AtLogOn
     $rl = if ($m.runlevel) { $m.runlevel } else { "Highest" }
     $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -RunLevel $rl -LogonType Interactive
@@ -245,8 +252,8 @@ foreach ($m in $MCPS) {
     $listening = Get-NetTCPConnection -State Listen -LocalPort $m.port -ErrorAction SilentlyContinue
     if ($listening) { Ok "$($m.name): already listening on $($m.port)." }
     else {
-      $env:PYTHONIOENCODING = "utf-8"
-      Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-Command',"`$env:PYTHONIOENCODING='utf-8'; & '$py' '$server'"
+      Start-McpHiddenServer -PowerShellPath $powershell -LauncherPath $launcher `
+        -PythonPath $py -ServerPath $server -WorkingDirectory $dir -Name $m.name -LogDirectory $logRoot
       Ok "$($m.name): started -> http://127.0.0.1:$($m.port)/mcp"
     }
   }
@@ -351,6 +358,7 @@ else {
 # Registers a Scheduled Task that every 5 min restarts any MCP server whose event loop has wedged
 # (listening but not answering) -- which would otherwise hang Goose. See tools\mcp_watchdog\README.md.
 if ($SkipWatchdog) { Warn "Skipping MCP watchdog (-SkipWatchdog)." }
+elseif ($SkipTasks) { Warn "Skipping Scheduled Task registration (-SkipTasks)." }
 else {
   $wdInstall = Join-Path $here "tools\mcp_watchdog\install_watchdog.ps1"
   if (Test-Path $wdInstall) {
