@@ -8,7 +8,9 @@
     $env:GOOSE_WEB_HOST='127.0.0.1'; .\serve_web.ps1   # local-only (no admin/urlacl needed)
     $env:GOOSE_WEB_PORT='9000'; .\serve_web.ps1
 
-  Most settings live in config.json (backends, model, port, ...); env vars override it.
+  Server settings live in config.json (port, token, backends layout, ...); env vars
+  override it. The model/provider shown in the UI are read LIVE from goose's own
+  config.yaml on every health poll — the UI always shows what goose actually uses.
   If running unsigned scripts is blocked:
     powershell -ExecutionPolicy Bypass -File .\serve_web.ps1
 #>

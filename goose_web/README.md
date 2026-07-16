@@ -30,30 +30,45 @@ There are two interchangeable implementations with an identical HTTP contract:
   The PowerShell port feeds the message to goose on **stdin** (`goose run … -i -`)
   so arbitrary message text never has to be quoted for the Windows command line.
 
-## Configuration (`config.json`)
-Both servers read **`config.json`** in this directory (override the path with
-`GOOSE_WEB_CONFIG`). It sets the backend addresses shown in the status panel and
-the rest of the knobs:
+## Configuration
+**The model / provider / backend addresses shown in the UI are read LIVE from
+goose's own `config.yaml`** (`~/.config/goose/config.yaml`, or
+`%APPDATA%\Block\goose\config\config.yaml` on Windows; override with
+`GOOSE_CONFIG`) — the same file goose actually runs from. On every
+`/api/health` poll (~20 s) the server re-reads its top-level
+`GOOSE_PROVIDER` / `GOOSE_MODEL` / `OPENAI_HOST` / `OLLAMA_HOST` scalars, with
+process env vars overriding the file (goose's own precedence). Flip
+`GOOSE_PROVIDER` between `openai` and `ollama`, or change `GOOSE_MODEL`, and
+the UI follows within one poll — no restart, and no way for the panel to show
+a model goose isn't using.
+
+Both servers also read **`config.json`** in this directory (override the path
+with `GOOSE_WEB_CONFIG`) for the server knobs and the health-panel layout:
 
 ```json
 {
   "host": "0.0.0.0", "port": 8799, "token": "", "workspace": "../workspace",
   "max_turns": 50, "timeout_seconds": 1800, "goose_bin": "",
   "max_upload_mb": 25, "uploads_subdir": "uploads",
-  "model": "qwen-3.6-chat", "provider_label": "vLLM (OpenAI-compat)",
+  "model": "qwen-3.6-chat",
+  "provider_labels": { "openai": "vLLM (OpenAI-compat)", "ollama": "Ollama" },
   "backends": [
-    { "name": "vLLM chat",  "url": "http://192.168.86.44:8000",  "health_path": "/v1/models", "role": "chat"  },
-    { "name": "vLLM embed", "url": "http://192.168.86.44:8001",  "health_path": "/v1/models", "role": "embed" },
-    { "name": "Ollama",     "url": "http://192.168.86.44:11434", "health_path": "/api/tags",  "role": "ollama" }
+    { "name": "vLLM chat",  "url": "http://100.88.242.174:8000",  "health_path": "/v1/models", "role": "chat"  },
+    { "name": "vLLM embed", "url": "http://100.88.242.174:8001",  "health_path": "/v1/models", "role": "embed" },
+    { "name": "Ollama",     "url": "http://100.88.242.174:11434", "health_path": "/api/tags",  "role": "ollama" }
   ]
 }
 ```
-Edit the `backends` URLs to point the health panel at your vLLM chat / vLLM embed /
-Ollama servers; the `role:"chat"` backend supplies the provider host shown in the UI.
-**Note:** these addresses only drive the web UI's health panel + displayed provider —
-goose's *actual* model provider is configured in goose's own config
-(`~/.config/goose/config.yaml`, or `%APPDATA%\Block\goose\config\config.yaml` on Windows).
-Any `GOOSE_WEB_*` environment variable overrides the matching `config.json` value.
+- `backends` defines the health-panel **rows** (name / `health_path` / `role`
+  + fallback `url`). Rows with role `chat` / `ollama` get their URL overridden
+  by the live `OPENAI_HOST` / `OLLAMA_HOST`, and the row matching the live
+  `GOOSE_PROVIDER` is badged **in use**. Rows with other roles (e.g. `embed`,
+  which goose's config doesn't describe) keep their `url` as configured.
+- `model` is a last-resort fallback shown only if `config.yaml` is unreadable.
+- `provider_labels` maps a goose provider id to the display label (the legacy
+  single `provider_label` key is still honored as the `openai` label).
+- Any `GOOSE_WEB_*` environment variable overrides the matching `config.json`
+  value.
 
 ## Run it
 **Linux / macOS:**
@@ -88,9 +103,9 @@ Then open `http://<gb10-ip>:8799` (this box is `192.168.86.44`).
 | `GOOSE_WEB_MAXTURNS` | `50` | `--max-turns` per turn |
 | `GOOSE_WEB_TIMEOUT` | `1800` | hard wall-clock kill (seconds) per turn |
 | `GOOSE_WEB_MAX_UPLOAD_MB` | `25` | max size per attached file (`POST /api/upload`) |
-| `GOOSE_WEB_MODEL` | from config | model name shown in the UI |
+| `GOOSE_WEB_MODEL` | _(none)_ | overrides the live model name shown in the UI |
 | `GOOSE_WEB_CONFIG` | `./config.json` | path to the web config file |
-| `GOOSE_CONFIG` | OS default | goose's `config.yaml` used for live MCP tool discovery |
+| `GOOSE_CONFIG` | OS default | goose's `config.yaml` used for the live model/provider display + MCP tool discovery |
 | `GOOSE_BIN` | auto | path to the goose binary |
 
 ## Live MCP tool discovery
@@ -134,7 +149,7 @@ the backend MCP server process.
 
 ## Endpoints
 - `GET /` — the chat page
-- `GET /api/health` — model + backend status + **live-discovered MCP extensions + tool list** (snapshot cache, version cached at startup)
+- `GET /api/health` — **live model/provider from goose's `config.yaml`** (`model`, `provider`, `provider_name`) + backend status (`backends[].active` marks goose's current provider) + **live-discovered MCP extensions + tool list** (snapshot cache, version cached at startup)
 - `POST /api/chat` — `{session, message, mode, attachments?}` → streamed NDJSON events
 - `POST /api/upload?session=&name=` — raw file bytes in the body → saved to `workspace/uploads/<session>/`; returns `{ok, name, size}`
 - `POST /api/extensions/toggle` — `{id, enabled}` → flips one MCP's `enabled:` in `config.yaml`

@@ -16,7 +16,11 @@
   model-only). First turn for a session omits -r; later turns add -r to resume.
 
   Configuration: config.json next to this file (shared with server.py). Any
-  GOOSE_WEB_* environment variable overrides the matching value. See README.
+  GOOSE_WEB_* environment variable overrides the matching value. The model and
+  provider shown by /api/health are NOT taken from config.json: they are read
+  live from goose's own config.yaml (GOOSE_PROVIDER / GOOSE_MODEL /
+  OPENAI_HOST / OLLAMA_HOST, env vars winning) on every poll, so the UI always
+  shows what goose actually uses. See README.
 
   Windows note: binding 0.0.0.0 (all interfaces) with HttpListener needs either
   an elevated shell OR a one-time URL ACL reservation, e.g.:
@@ -45,8 +49,8 @@ function Load-WebConfig {
         max_upload_mb   = 25
         uploads_subdir  = 'uploads'
         goose_bin       = ''
-        model           = 'qwen-3.6-chat'
-        provider_label  = 'vLLM (OpenAI-compat)'
+        model           = 'qwen-3.6-chat'   # last-resort fallback; live value comes from goose's config.yaml
+        provider_label  = ''                # legacy single-label schema (maps to provider_labels['openai'])
         backends        = @(
             @{ name = 'vLLM chat';  url = 'http://100.88.242.174:8000';  health_path = '/v1/models'; role = 'chat'  }
             @{ name = 'vLLM embed'; url = 'http://100.88.242.174:8001';  health_path = '/v1/models'; role = 'embed' }
@@ -205,6 +209,75 @@ function Parse-GooseExtensions($path) {
     }
     if ($cur) { $exts += $cur }
     return $exts
+}
+
+# --- live provider truth: what goose ACTUALLY runs (model / provider / hosts) ---
+# goose's real provider+model+endpoints are top-level scalars in its own
+# config.yaml (GOOSE_PROVIDER / GOOSE_MODEL / OPENAI_HOST / OLLAMA_HOST), with
+# process env vars overriding the file -- goose's own precedence. Build-Health
+# re-reads them on every /api/health poll (the file is tiny) so the UI always
+# shows what goose actually uses; config.json only supplies panel layout +
+# fallbacks.
+function Read-GooseScalars($path) {
+    $out = @{}
+    try {
+        if (Test-Path -LiteralPath $path) {
+            foreach ($raw in (Get-Content -LiteralPath $path -Encoding UTF8)) {
+                $m = [regex]::Match([string]$raw, '^([A-Za-z0-9_]+):\s*(.*)$')   # column-0 scalars only (skips comments/indented)
+                if (-not $m.Success) { continue }
+                if ($m.Groups[1].Value -in 'GOOSE_PROVIDER','GOOSE_MODEL','OPENAI_HOST','OPENAI_BASE_PATH','OLLAMA_HOST') {
+                    $v = ([string]$m.Groups[2].Value -split '\s#')[0]            # strip inline comment
+                    $out[$m.Groups[1].Value] = $v.Trim().Trim('"').Trim("'")
+                }
+            }
+        }
+    } catch {}
+    return $out
+}
+
+function Normalize-HostUrl($url, $defaultPort) {
+    $u = ([string]$url).Trim().TrimEnd('/')
+    if (-not $u) { return '' }
+    if ($u -notmatch '://') { $u = 'http://' + $u }
+    if ($defaultPort -and $u -notmatch '^[a-z+.\-]+://[^/]*:\d+') { $u = $u + ':' + $defaultPort }
+    return $u
+}
+
+function Get-ProviderLabels($cfg) {
+    $labels = @{ openai = 'vLLM (OpenAI-compat)'; ollama = 'Ollama' }
+    if ($cfg.provider_label) { $labels['openai'] = [string]$cfg.provider_label }   # legacy single-label schema
+    $pl = $cfg.provider_labels
+    if ($pl -is [hashtable]) { foreach ($k in @($pl.Keys)) { $labels[([string]$k).ToLower()] = [string]$pl[$k] } }
+    elseif ($pl) { foreach ($p in $pl.PSObject.Properties) { $labels[([string]$p.Name).ToLower()] = [string]$p.Value } }
+    return $labels
+}
+
+# What goose actually runs right now: env > goose config.yaml > config.json.
+# Returned keys: provider, model, label, host (live endpoint of the active
+# provider, '' if unknown), hosts (role -> live URL), active_role.
+function Get-ProviderSnapshot($cfg, $configPath) {
+    $y = Read-GooseScalars $configPath
+    $provider = ''
+    if ($y['GOOSE_PROVIDER'])   { $provider = $y['GOOSE_PROVIDER'] }
+    if ($env:GOOSE_PROVIDER)    { $provider = $env:GOOSE_PROVIDER }
+    $provider = ([string]$provider).Trim().ToLower()
+    $model = [string]$cfg.model
+    if ($y['GOOSE_MODEL'])      { $model = $y['GOOSE_MODEL'] }
+    if ($env:GOOSE_MODEL)       { $model = $env:GOOSE_MODEL }
+    if ($env:GOOSE_WEB_MODEL)   { $model = $env:GOOSE_WEB_MODEL }
+    $chatRaw = $y['OPENAI_HOST'];   if ($env:OPENAI_HOST) { $chatRaw = $env:OPENAI_HOST }
+    $ollamaRaw = $y['OLLAMA_HOST']; if ($env:OLLAMA_HOST) { $ollamaRaw = $env:OLLAMA_HOST }
+    $hosts = @{ chat = (Normalize-HostUrl $chatRaw $null); ollama = (Normalize-HostUrl $ollamaRaw 11434) }
+    $role = ''
+    if ($provider -eq 'openai') { $role = 'chat' } elseif ($provider -eq 'ollama') { $role = 'ollama' }
+    $provHost = ''
+    if ($role) { $provHost = [string]$hosts[$role] }
+    $labels = Get-ProviderLabels $cfg
+    $label = [string]$labels['openai']
+    if ($provider) { $label = $provider }
+    if ($labels[$provider]) { $label = [string]$labels[$provider] }
+    return @{ provider = $provider; model = ([string]$model).Trim(); label = $label
+              host = $provHost; hosts = $hosts; active_role = $role }
 }
 
 function ConvertFrom-McpBody($text) {
@@ -397,7 +470,8 @@ $bindPublic = $prefHost -ne '127.0.0.1'
 Write-Host ("=" * 64)
 Write-Host "  Goose Harness Web (PowerShell)  ->  $prefix"
 Write-Host "  goose     : $GooseVersion  ($GooseBin)"
-Write-Host "  model     : $($CFG.model)"
+$snap0 = Get-ProviderSnapshot $CFG $GooseConfigPath   # live from goose's config.yaml (env overrides win)
+Write-Host "  model     : $($snap0.model)  via $(if ($snap0.host) { $snap0.host } else { 'config.json backends' })  [provider: $(if ($snap0.provider) { $snap0.provider } else { 'unknown' }), live from goose config.yaml]"
 Write-Host "  workspace : $Workspace"
 Write-Host "  tools     : live discovery every ${DISCOVERY_REFRESH_SEC}s <- $GooseConfigPath"
 Write-Host "  token     : $(if ($Token) { 'required' } else { 'NONE' })"
@@ -584,11 +658,19 @@ $worker = {
 
     function Build-Health($S) {
         $cfg = $S.cfg
+        $snap = Get-ProviderSnapshot $cfg $S.gooseConfig   # live: env > goose config.yaml > config.json fallback
         $backends = @()
         foreach ($b in $cfg.backends) {
-            $u = ([string]$b.url).TrimEnd('/')
+            $role = [string]$b.role
+            # chat/ollama rows follow goose's live OPENAI_HOST/OLLAMA_HOST; other
+            # roles (embed, ...) keep their config.json URL.
+            $u = ''
+            if ($role -and $snap.hosts[$role]) { $u = [string]$snap.hosts[$role] }
+            if (-not $u) { $u = [string]$b.url }
+            $u = $u.TrimEnd('/')
             $hp = if ($b.health_path) { [string]$b.health_path } else { '/' }
-            $backends += @{ name = [string]$b.name; detail = $u; ok = (Test-Url ($u + $hp)) }
+            $backends += @{ name = [string]$b.name; detail = $u; ok = (Test-Url ($u + $hp))
+                            active = [bool]($role -and $role -eq $snap.active_role) }   # goose's current provider
         }
         # tool list is live-discovered in a background runspace; read the cached
         # snapshot only (never block here). $shared.exts/.tools are seeded at startup.
@@ -599,9 +681,11 @@ $worker = {
             if ($shared.exts)  { $exts  = @($shared.exts) }
             if ($shared.tools) { $tools = @($shared.tools) }
         } finally { [System.Threading.Monitor]::Exit($shared.SyncRoot) }
+        $dispHost = if ($snap.host) { [string]$snap.host } else { Get-ChatUrl $cfg }   # config.json fallback if config.yaml unreadable
+        $providerStr = if ($dispHost) { "$($snap.label) @ $dispHost" } else { [string]$snap.label }
         return @{
-            ok = $true; version = $S.gooseVer; model = [string]$cfg.model
-            provider = ([string]$cfg.provider_label + ' @ ' + (Get-ChatUrl $cfg))
+            ok = $true; version = $S.gooseVer; model = [string]$snap.model
+            provider = $providerStr; provider_name = [string]$snap.provider
             workspace = [string]$S.workspace; token_required = [bool]$S.token
             backends = $backends; extensions = $exts; tools = $tools
         }

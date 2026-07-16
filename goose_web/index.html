@@ -79,6 +79,9 @@
   .srv .ext{color:var(--muted);font-size:11px;flex:0 0 auto}
   .srv .open{color:var(--faint);font-size:13px;flex:0 0 auto;opacity:0;transition:.14s}
   .srv:hover .open{opacity:1;color:var(--accent)}
+  /* the backend goose is ACTUALLY using right now (live from its config.yaml) */
+  .srv .inuse{flex:0 0 auto;font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
+    color:var(--accent);border:1px solid #d8b67755;border-radius:20px;padding:1.5px 7px;margin-left:2px}
 
   /* an MCP server (extension) -> a card listing its tools (function name + description) */
   .extn{margin:8px 0;border:1px solid var(--line);border-radius:12px;background:#ffffff04;overflow:hidden}
@@ -505,6 +508,7 @@ async function loadHealth(){
   try{const r=await fetch("/api/health");HEALTH=await r.json();}
   catch(_){HEALTH={model:modelLabel(),backends:[],extensions:[],tools:[]};}
   $("#pillModel").textContent=HEALTH.model||"—";
+  $("#pillModel").title=HEALTH.provider||"";
   $("#footModel").textContent=HEALTH.model||"—";
   $("#footVer").textContent=HEALTH.version?("core "+HEALTH.version):"—";
   try{$("#brandSub").textContent="local agent · "+(HEALTH.provider?hostOf(HEALTH.provider.split("@").pop().trim()):"GB10");}catch(_){}
@@ -514,7 +518,9 @@ async function loadHealth(){
   (HEALTH.backends||[]).forEach(b=>{
     const a=el("a","srv");a.href=b.detail||"#";a.target="_blank";a.rel="noopener";
     a.innerHTML='<span class="dot '+(b.ok?"up":"down")+'"></span><span class="meta"><div class="nm">'+esc(b.name)+
-      '</div><div class="host">'+esc(hostOf(b.detail))+'</div></span><span class="open">↗</span>';
+      '</div><div class="host">'+esc(hostOf(b.detail))+'</div></span>'+
+      (b.active?'<span class="inuse" title="goose’s active provider — live from its config.yaml">in use</span>':'')+
+      '<span class="open">↗</span>';
     sv.appendChild(a);
   });
 

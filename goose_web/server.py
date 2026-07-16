@@ -19,12 +19,16 @@ with cwd = workspace dir and GOOSE_MODE from the request ("auto" runs tools,
 you -r a session that does not exist yet); later turns add -r to resume context.
 
 Configuration (config.json next to this file -- shared with server.ps1):
-  Sets model, provider_label, and the backends list (vLLM chat / vLLM embed /
-  Ollama URLs + health paths) shown in the status panel, plus host/port/token/
-  workspace/max_turns/timeout/goose_bin. NOTE: backends here only drive the web
-  UI's health panel + displayed provider host; goose's REAL model provider lives
-  in goose's own config (~/.config/goose/config.yaml). Point at a different file
-  with GOOSE_WEB_CONFIG=/path/to.json.
+  Sets host/port/token/workspace/max_turns/timeout/goose_bin plus the health
+  panel's backend rows (name/health_path/role + fallback url). The MODEL and
+  PROVIDER the panel shows are NOT set here: /api/health reads them live from
+  goose's own config.yaml (GOOSE_PROVIDER / GOOSE_MODEL / OPENAI_HOST /
+  OLLAMA_HOST, with process env vars overriding the file -- goose's own
+  precedence), so the UI always shows what goose actually uses. Backend rows
+  with role "chat"/"ollama" get their URL overridden by the live OPENAI_HOST/
+  OLLAMA_HOST and the row matching the live provider is flagged active
+  ("in use" badge); config.json values are fallbacks only. Point at a
+  different web config with GOOSE_WEB_CONFIG=/path/to.json.
 
 Env knobs (override config.json; all optional):
   GOOSE_WEB_HOST       bind address              (default 0.0.0.0)
@@ -33,7 +37,7 @@ Env knobs (override config.json; all optional):
   GOOSE_WEB_WORKSPACE  agent working directory   (default ../workspace)
   GOOSE_WEB_MAXTURNS   --max-turns per turn      (default 50)
   GOOSE_WEB_TIMEOUT    hard wall-clock kill (s)  (default 1800)
-  GOOSE_WEB_MODEL      model name shown in UI
+  GOOSE_WEB_MODEL      overrides the live model name shown in the UI
   GOOSE_WEB_CONFIG     path to the config.json   (default: ./config.json)
   GOOSE_BIN            path to goose binary      (default: which goose / ~/.local/bin/goose)
   GOOSE_CONFIG         path to goose's config.yaml used for live MCP tool
@@ -68,8 +72,9 @@ _DEFAULTS = {
     "goose_bin": "",
     "max_upload_mb": 25,
     "uploads_subdir": "uploads",
-    "model": "qwen-3.6-chat",
-    "provider_label": "vLLM (OpenAI-compat)",
+    "model": "qwen-3.6-chat",       # last-resort fallback; live value comes from goose's config.yaml
+    "provider_label": "",           # legacy single-label schema (maps to provider_labels["openai"])
+    "provider_labels": {},          # provider id -> display label; merged over _PROVIDER_LABEL_DEFAULTS
     "backends": [
         {"name": "vLLM chat", "url": "http://100.88.242.174:8000", "health_path": "/v1/models", "role": "chat"},
         {"name": "vLLM embed", "url": "http://100.88.242.174:8001", "health_path": "/v1/models", "role": "embed"},
@@ -198,6 +203,98 @@ def _unquote(s: str) -> str:
     if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
         return s[1:-1]
     return s
+
+
+# ---------------------------------------------------------------------------
+# Live provider truth (model / provider / hosts)
+# ---------------------------------------------------------------------------
+# goose's REAL provider+model+endpoints live in its own config.yaml (top-level
+# GOOSE_PROVIDER / GOOSE_MODEL / OPENAI_HOST / OLLAMA_HOST), with process env
+# vars overriding the file -- exactly the precedence goose itself applies. The
+# web UI reads that live truth on every /api/health poll (the file is tiny),
+# so what the panel shows is what goose actually uses; config.json only
+# supplies the panel layout + fallbacks. GOOSE_WEB_MODEL stays as an explicit
+# display override.
+
+_GOOSE_SCALAR_KEYS = {"GOOSE_PROVIDER", "GOOSE_MODEL", "OPENAI_HOST", "OPENAI_BASE_PATH", "OLLAMA_HOST"}
+
+# provider id (GOOSE_PROVIDER) -> display label; config.json "provider_labels" overrides.
+_PROVIDER_LABEL_DEFAULTS = {"openai": "vLLM (OpenAI-compat)", "ollama": "Ollama"}
+
+# provider id -> the config.json backend role that serves it (drives the URL
+# override + the "in use" badge). Other providers (anthropic, ...) have no
+# local backend row and just display by name.
+_PROVIDER_ROLE = {"openai": "chat", "ollama": "ollama"}
+
+
+def _read_goose_scalars() -> dict:
+    """Top-level provider/model/host scalars from goose's config.yaml.
+
+    Returns {} if the file is missing/unreadable (callers fall back to
+    config.json). Only column-0 `KEY: value` lines are considered, so the
+    extensions block and comments can never shadow a key.
+    """
+    try:
+        text = _goose_config_path().read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    out: dict = {}
+    for raw in text.splitlines():
+        if not raw or raw[0] in " \t#":  # top-level scalars only
+            continue
+        key, sep, val = raw.partition(":")
+        if sep and key.strip() in _GOOSE_SCALAR_KEYS:
+            out[key.strip()] = _unquote(val.split(" #", 1)[0].strip())
+    return out
+
+
+def _normalize_url(url: str, default_port: int | None = None) -> str:
+    """'' -> ''; bare host gets http://; hostname without a port gets default_port."""
+    u = (url or "").strip().rstrip("/")
+    if not u:
+        return ""
+    if "://" not in u:
+        u = "http://" + u
+    if default_port and not re.match(r"^[a-z+.-]+://[^/]*:\d+", u):
+        u += f":{default_port}"
+    return u
+
+
+def _provider_labels() -> dict:
+    labels = dict(_PROVIDER_LABEL_DEFAULTS)
+    if WEBCFG.get("provider_label"):  # legacy single-label schema described the openai/vLLM backend
+        labels["openai"] = str(WEBCFG["provider_label"])
+    if isinstance(WEBCFG.get("provider_labels"), dict):
+        labels.update({str(k).lower(): str(v) for k, v in WEBCFG["provider_labels"].items()})
+    return labels
+
+
+def _provider_snapshot() -> dict:
+    """What goose ACTUALLY runs right now: env > goose config.yaml > config.json.
+
+    Re-read per health request so an edit to goose's config.yaml (e.g. flipping
+    GOOSE_PROVIDER between openai and ollama) shows up in the UI within one
+    poll -- no restart, no drift.
+    """
+    y = _read_goose_scalars()
+    env = os.environ.get
+    provider = (env("GOOSE_PROVIDER") or y.get("GOOSE_PROVIDER") or "").strip().lower()
+    model = (env("GOOSE_WEB_MODEL") or env("GOOSE_MODEL") or y.get("GOOSE_MODEL")
+             or str(WEBCFG["model"])).strip()
+    hosts = {  # keyed by config.json backend role
+        "chat": _normalize_url(env("OPENAI_HOST") or y.get("OPENAI_HOST") or ""),
+        "ollama": _normalize_url(env("OLLAMA_HOST") or y.get("OLLAMA_HOST") or "", 11434),
+    }
+    labels = _provider_labels()
+    role = _PROVIDER_ROLE.get(provider, "")
+    return {
+        "provider": provider,  # goose's live provider id ("" if config.yaml unreadable)
+        "model": model,
+        "label": labels.get(provider) or provider or labels["openai"],
+        "host": hosts.get(role, "") if role else "",  # live endpoint of the active provider
+        "hosts": hosts,
+        "active_role": role,
+    }
 
 
 def _parse_goose_extensions(text: str) -> list[dict]:
@@ -666,19 +763,28 @@ def _url_ok(url: str, timeout: float = 4.0) -> bool:
 
 
 def _health() -> dict:
+    snap = _provider_snapshot()  # live: env > goose config.yaml > config.json fallback
     backends = []
     for b in WEBCFG["backends"]:
-        url = b["url"].rstrip("/")
+        role = b.get("role", "")
+        # chat/ollama rows follow goose's live OPENAI_HOST/OLLAMA_HOST; other
+        # roles (embed, ...) keep their config.json URL.
+        url = (snap["hosts"].get(role) or b["url"]).rstrip("/")
         hp = b.get("health_path", "/")
-        backends.append({"name": b.get("name", url), "detail": url, "ok": _url_ok(url + hp)})
+        backends.append({
+            "name": b.get("name", url), "detail": url, "ok": _url_ok(url + hp),
+            "active": bool(role) and role == snap["active_role"],  # goose's current provider
+        })
     with _disc_lock:  # serve the live-discovery snapshot; never block on a handshake
         extensions = [dict(x) for x in _disc_extensions]
         tools = [dict(x) for x in _disc_tools]
+    disp_host = snap["host"] or _chat_url()  # config.json fallback if config.yaml is unreadable
     return {
         "ok": True,
         "version": GOOSE_VERSION,
-        "model": WEBCFG["model"],
-        "provider": WEBCFG["provider_label"] + " @ " + _chat_url(),
+        "model": snap["model"],
+        "provider": (snap["label"] + " @ " + disp_host) if disp_host else snap["label"],
+        "provider_name": snap["provider"],
         "workspace": str(WORKSPACE),
         "token_required": bool(TOKEN),
         "backends": backends,
@@ -1032,7 +1138,9 @@ def main():
     print("=" * 64)
     print(f"  Goose Harness Web  ->  http://{HOST}:{PORT}")
     print(f"  goose     : {GOOSE_VERSION}  ({GOOSE_BIN})")
-    print(f"  model     : {WEBCFG['model']}  via {_chat_url()}")
+    snap = _provider_snapshot()  # live from goose's config.yaml (env overrides win)
+    print(f"  model     : {snap['model']}  via {snap['host'] or _chat_url()}  "
+          f"[provider: {snap['provider'] or 'unknown'}, live from goose config.yaml]")
     print(f"  workspace : {WORKSPACE}")
     print(f"  token     : {'required' if TOKEN else 'NONE'}")
     print("=" * 64)
