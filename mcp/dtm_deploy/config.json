@@ -1,0 +1,13 @@
+{
+  "download_path": "${repo_root}/downloads/dtm",
+  "consent_registry_path": "HKLM\\SOFTWARE\\Dell\\Notification Manager\\Telemetry",
+  "consent_value_name": "ConsentOverride",
+  "consent_value_data": 1,
+  "plugin_dest_dir": "C:\\Program Files\\Dell\\DTP\\TransmissionPlugins",
+  "dtp_service_name": "DellTechHub",
+  "dtp_process_name_patterns": ["Dell.TechHub*", "Dell.CoreServices.Client*"],
+  "heartbeat_log_path": "",
+  "verify_poll_interval_seconds": 180,
+  "verify_poll_timeout_seconds": 3300,
+  "confirm_ttl_seconds": 120
+}

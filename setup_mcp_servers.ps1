@@ -10,12 +10,14 @@
   fresh machine, then this. Requires: an elevated PowerShell (Scheduled Tasks + the servers read
   SYSTEM-hive / kernel data), Python 3 on PATH with pip.
 
-  The 14 servers (all loopback, streamable HTTP). The first 12 are read-only diagnostic MCPs:
+  The 16 servers (all loopback, streamable HTTP). The first 12 are read-only diagnostic MCPs:
     srum 8777, eventlog 8778, crash 8779, exec 8780, drift 8781, netconn 8782, perfmon 8783,
     disk 8784, procinspect 8785, memstate 8786, filterstack 8787, winupdate 8788
   dtmsdk 8789 is the DTM Sample/SDK util MCP -- NOT read-only (transmits telemetry / changes DTP config;
-  gated per-command). obsidian 8790 is the Obsidian vault MCP -- writes markdown notes (gated per-note)
-  and is the only server that runs UNELEVATED (RunLevel Limited).
+  gated per-command). obsidian 8790 is the Obsidian vault MCP -- writes markdown notes (gated per-note).
+  dtm_download 8791 downloads DTP builds from Artifactory (writes only into its own download_path).
+  dtm_deploy 8792 wraps DTP uninstall/install/consent/plugin/transmission (gated per-tool). obsidian and
+  dtm_download are the only two servers that run UNELEVATED (RunLevel Limited).
   This setup also installs Sysmon (kernel driver + audit config; -SkipSysmon to opt out) to feed eventlog.
 
   NOTE ON PRIVILEGE: this INSTALLER needs Administrator (registering a RunLevel-Highest Scheduled
@@ -78,7 +80,7 @@ try {
   $manifestEntries = @($decodedManifest | ForEach-Object { $_ })
 }
 catch { Die "Invalid MCP manifest JSON: $_" }
-if ($manifestEntries.Count -ne 14) { Die "MCP manifest must contain exactly 14 entries on canonical ports 8777-8790; found $($manifestEntries.Count) entries." }
+if ($manifestEntries.Count -ne 16) { Die "MCP manifest must contain exactly 16 entries on canonical ports 8777-8792; found $($manifestEntries.Count) entries." }
 
 $MCPS = New-Object System.Collections.ArrayList
 $seenNames = @{}
@@ -86,7 +88,7 @@ $seenPorts = @{}
 $seenTasks = @{}
 $textFields = @("name","directory","task","run_level","description","health_tool")
 $integerTypes = @([byte],[sbyte],[int16],[uint16],[int32],[uint32],[int64],[uint64])
-$expectedPorts = @(8777..8790)
+$expectedPorts = @(8777..8792)
 foreach ($entry in $manifestEntries) {
   foreach ($field in @("name","directory","port","task","run_level","description","health_tool")) {
     if ($null -eq $entry.$field) {
@@ -103,7 +105,7 @@ foreach ($entry in $manifestEntries) {
   }
   if ($entry.run_level -notin @("Highest","Limited")) { Die "Invalid run_level for $($entry.name): $($entry.run_level)" }
   if ($entry.port -notin $expectedPorts) {
-    Die "MCP manifest must use canonical ports 8777-8790 exactly once."
+    Die "MCP manifest must use canonical ports 8777-8792 exactly once."
   }
   if ($seenNames.ContainsKey($entry.name)) { Die "MCP manifest contains duplicate name: $($entry.name)" }
   if ($seenPorts.ContainsKey($entry.port)) { Die "MCP manifest contains duplicate port: $($entry.port)" }
@@ -117,7 +119,7 @@ foreach ($entry in $manifestEntries) {
 }
 $actualPorts = @($seenPorts.Keys | ForEach-Object { [int]$_ } | Sort-Object)
 if (@(Compare-Object -ReferenceObject $expectedPorts -DifferenceObject $actualPorts).Count) {
-  Die "MCP manifest must use canonical ports 8777-8790 exactly once."
+  Die "MCP manifest must use canonical ports 8777-8792 exactly once."
 }
 
 . (Join-Path $here "scripts\mcp_task_helpers.ps1")
@@ -126,7 +128,7 @@ if (-not $powershell) { Die "Windows PowerShell not found on PATH." }
 $logRoot = Join-Path $here "logs\mcp"
 
 $mode = if ($Uninstall) { "UNINSTALL" } else { "setup" }
-Write-Host "=== HarnessAgent MCP servers $mode (14: 12 diagnostic + dtmsdk + obsidian) ===" -ForegroundColor Magenta
+Write-Host "=== HarnessAgent MCP servers $mode (16: 12 diagnostic + dtmsdk + obsidian + dtm_download + dtm_deploy) ===" -ForegroundColor Magenta
 
 # --- 0. Prereqs ---
 # Admin is needed to register/unregister a RunLevel-Highest Scheduled Task. It is NOT a statement

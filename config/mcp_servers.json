@@ -124,5 +124,23 @@
     "run_level": "Limited",
     "description": "Obsidian vault access (read/search/link-graph/tags/frontmatter + gated create/update of markdown notes) via local MCP server (127.0.0.1:8790). Runs UNELEVATED; writes are per-note confirmation-gated.",
     "health_tool": "obsidian_health"
+  },
+  {
+    "name": "dtm_download",
+    "directory": "dtm_download",
+    "port": 8791,
+    "task": "DtmDownload-MCP",
+    "run_level": "Limited",
+    "description": "Downloads DTP build artifacts (installer MSI, sample zips, datatype CSVs, doc HTML) from Artifactory via local MCP server (127.0.0.1:8791). Runs UNELEVATED; only writes into its own download_path. Artifactory token via DTM_DOWNLOAD_ARTIFACTORY_TOKEN env var, never a tool argument.",
+    "health_tool": "dtm_download_health"
+  },
+  {
+    "name": "dtm_deploy",
+    "directory": "dtm_deploy",
+    "port": 8792,
+    "task": "DtmDeploy-MCP",
+    "run_level": "Highest",
+    "description": "DTP uninstall/install/consent/plugin/transmission/verify (the elevated half of the Run-DTPSetup.ps1 pipeline) via local elevated MCP server (127.0.0.1:8792). NOT read-only -- uninstall/install/consent/plugin/transmission/run_pipeline are confirmation-gated; verify tools run directly.",
+    "health_tool": "dtm_deploy_health"
   }
 ]

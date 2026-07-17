@@ -1,0 +1,20 @@
+{
+  "artifactory_base_url": "https://durjpd.artifactory.cec.lab.emc.com/artifactory",
+  "repo": "tlm-dflt-gen-prod-local",
+  "download_path": "${repo_root}/downloads/dtm",
+  "default_channel": "Daily",
+  "zip_filter": ["*DTPInstallers*x64*Release*", "*DTPSamples*x64*Release*"],
+  "csv_files": [
+    "InstrumentationDatatypeTable.csv",
+    "AlertDatatypeTable.csv",
+    "AnalysisDatatypeTable.csv"
+  ],
+  "html_files": [
+    { "file": "Datatypes.html", "label": "Datatypes" },
+    { "file": "packages.html", "label": "Packages" },
+    { "file": "packagesByProject.html", "label": "Packages by Project" },
+    { "file": "projectsByPackage.html", "label": "Projects by Package" }
+  ],
+  "download_timeout_seconds": 600,
+  "connect_timeout_seconds": 15
+}

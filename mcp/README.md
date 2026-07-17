@@ -81,6 +81,30 @@ change DTP configuration, so every command outside a per-util safe allowlist req
 confirmation token. Requires Administrator and a running Dell TechHub service. Paths live in
 `dtm_sdk/config.json` (one-line redeploy via `samples_root`). See [`dtm_sdk/README.md`](dtm_sdk/README.md).
 
+### DTM Download MCP (`dtm_download/`, 127.0.0.1:8791) — UNELEVATED
+
+`dtm_download` downloads DTP build artifacts (installer MSI, sample zips, datatype CSVs, doc HTML)
+from Artifactory. Pure-Python (`requests` + stdlib `zipfile`/`hashlib`; no `.ps1` dependency),
+reimplementing the download half of `ccp/tools/DTMTransmissionAutoTest-/Install-DTP.ps1`. It only
+writes into its own configured `download_path`, so it runs **UNELEVATED** (`RunLevel Limited`, like
+`obsidian`). The Artifactory bearer token is env-only (`DTM_DOWNLOAD_ARTIFACTORY_TOKEN`) -- never a
+config.json value or a tool argument. Tools: `dtm_download_build`, `dtm_list_builds`,
+`dtm_download_health`. See [`dtm_download/README.md`](dtm_download/README.md).
+
+### DTM Deploy MCP (`dtm_deploy/`, 127.0.0.1:8792) — NOT read-only
+
+`dtm_deploy` wraps the elevated half of `Run-DTPSetup.ps1`: uninstall, enable-user-consent,
+insert-test-plugin, install, enable-transmission, plus verify-collection/verify-heartbeat. Pure-Python
+(COM `WindowsInstaller.Installer` via `win32com` for MSI property reads + `msiexec.exe` via
+`subprocess` for the actual install/uninstall action, `winreg` for the registry writes, `DTMUtil.exe`
+via `subprocess` for transmission). Takes the `msi_path` produced by `dtm_download`'s
+`dtm_download_build` as a plain tool argument -- the two servers share no state. Every
+system-mutating tool (`dtm_uninstall`, `dtm_enable_user_consent`, `dtm_insert_test_plugin`,
+`dtm_install`, `dtm_enable_transmission`, `dtm_run_pipeline`) is confirm-token gated exactly like
+`dtmsdk`; `dtm_verify_collection`/`dtm_verify_heartbeat`/`dtm_deploy_health` are safe and run
+directly. Requires Administrator (`RunLevel Highest`). See
+[`dtm_deploy/README.md`](dtm_deploy/README.md).
+
 ### Obsidian vault MCP (`windows_obsidian/`, 127.0.0.1:8790) — the only Limited task
 
 `obsidian` gives the harness file-level access to an Obsidian vault (read/search/list, wikilink &
@@ -96,7 +120,7 @@ vault's `.md` files (no traversal/symlink escape); there is no delete and no sil
 logon Scheduled Task per server, and registers each extension into goose's `config.yaml`):
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\..\setup_goose.ps1          # 1. goose itself + base config
-powershell -ExecutionPolicy Bypass -File .\..\setup_mcp_servers.ps1    # 2. all 14 local MCPs (Administrator)
+powershell -ExecutionPolicy Bypass -File .\..\setup_mcp_servers.ps1    # 2. all 16 local MCPs (Administrator)
 ```
 `setup_mcp_servers.ps1` flags: `-SkipDeps` (no `pip install`) · `-SkipTasks` (don't register Scheduled
 Tasks) · `-NoStart` (register but don't launch) · `-SkipConfig` (leave `config.yaml` alone) ·
@@ -131,7 +155,7 @@ Get-Content .\logs\mcp\eventlog.stderr.log -Tail 50 -Wait
 
 ### Test all local MCP servers
 
-Once the servers are running, test all 14 from a normal, **unelevated** PowerShell session:
+Once the servers are running, test all 16 from a normal, **unelevated** PowerShell session:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\..\test_mcp_servers.ps1
 ```
@@ -160,15 +184,15 @@ in [`../docs/windows-diagnostic-mcp-candidates.md`](../docs/windows-diagnostic-m
 Three separate things, often conflated:
 
 1. **The installer needs admin.** `setup_mcp_servers.ps1` (and each `install_task.ps1`) registers a
-   Scheduled Task: 13 use `RunLevel Highest`, while `obsidian` uses `RunLevel Limited`. Registration
-   requires an elevated shell; this says nothing about runtime.
-2. **Thirteen servers are *started* elevated.** Their tasks trigger at **`-AtLogOn`** (not at boot) as
+   Scheduled Task: 14 use `RunLevel Highest`, while `obsidian` and `dtm_download` use `RunLevel Limited`.
+   Registration requires an elevated shell; this says nothing about runtime.
+2. **Fourteen servers are *started* elevated.** Their tasks trigger at **`-AtLogOn`** (not at boot) as
    **your own account** with `LogonType Interactive` and `RunLevel Highest`, so they come up silently (no
-   UAC prompt or visible console) through the hidden PowerShell launcher when you log in. `obsidian` is
-   the scheduled-task exception: it retains `RunLevel Limited` and starts unelevated as the current user
-   at logon. An immediate start by elevated suite setup inherits the elevated setup token until Obsidian
-   is restarted through its task or at the next logon. A machine that boots but is never logged into runs
-   none of them.
+   UAC prompt or visible console) through the hidden PowerShell launcher when you log in. `obsidian` and
+   `dtm_download` are the scheduled-task exceptions: they retain `RunLevel Limited` and start unelevated
+   as the current user at logon. An immediate start by elevated suite setup inherits the elevated setup
+   token until they are restarted through their task or at the next logon. A machine that boots but is
+   never logged into runs none of them.
 3. **Goose never needs admin.** It runs unelevated and reaches every server over loopback HTTP
    (`streamable_http`). A TCP socket has no UAC/UIPI boundary, so an unprivileged client talking to an
    elevated server is fine — that separation is the whole point of the design.
@@ -190,21 +214,23 @@ failing outright:
 | `netconn` · `perfmon` · `drift` · `winupdate` | **no** | No admin gate anywhere in their code. |
 | `dtmsdk` (8789) | at runtime, yes | The DTP utils require Administrator. (The installer registers its task RunLevel Highest.) |
 | `obsidian` (8790) | **never required** | Only reads/writes user files in the vault. Scheduled/logon launches use **RunLevel Limited** and are unelevated. An immediate start by elevated suite setup inherits the setup token until a task/logon restart. |
+| `dtm_download` (8791) | **never required** | Only writes into its own download_path from Artifactory. Scheduled/logon launches use **RunLevel Limited** and are unelevated, same as `obsidian`. |
+| `dtm_deploy` (8792) | at runtime, yes | msiexec/HKLM writes/service control all require Administrator. (The installer registers its task RunLevel Highest.) |
 
 #### FAQ
 
-**Q: Goose runs unelevated while 13 MCP tasks are Highest and Obsidian's task is Limited. Can Goose call all of them?**
-Yes. All 14 servers are separate processes reached over loopback HTTP (`streamable_http`), not in-process
-libraries. Goose just sends an HTTP request to `127.0.0.1:87xx`. For the 13 elevated servers, a **TCP
+**Q: Goose runs unelevated while 14 MCP tasks are Highest and Obsidian's/dtm_download's tasks are Limited. Can Goose call all of them?**
+Yes. All 16 servers are separate processes reached over loopback HTTP (`streamable_http`), not in-process
+libraries. Goose just sends an HTTP request to `127.0.0.1:87xx`. For the 14 elevated servers, a **TCP
 socket has no UAC/UIPI boundary** (UIPI restricts window messages, not sockets), so an unelevated client
-can connect normally. Obsidian's `RunLevel Limited` task also launches it unelevated as the current user.
+can connect normally. Obsidian's and dtm_download's `RunLevel Limited` tasks also launch them unelevated as the current user.
 The exception is the suite installer's direct immediate start: when setup is elevated, that child inherits
 the elevated setup token until restarted through the Limited task or at the next logon. Keeping scheduled
-elevation confined to the 13 `RunLevel Highest` tasks is the point of this architecture.
+elevation confined to the 14 `RunLevel Highest` tasks is the point of this architecture.
 
 **Q: The Scheduled Tasks launch the servers with admin rights at system boot, right?**
-Mostly wrong. Thirteen tasks run **elevated** (`RunLevel Highest`, and Scheduled Tasks elevate *silently*
-— no UAC prompt); `obsidian`'s task remains `RunLevel Limited` and launches it unelevated. All run as
+Mostly wrong. Fourteen tasks run **elevated** (`RunLevel Highest`, and Scheduled Tasks elevate *silently*
+— no UAC prompt); `obsidian`'s and `dtm_download`'s tasks remain `RunLevel Limited` and launch them unelevated. All run as
 **your own user account** (not `SYSTEM`), and the trigger is **`-AtLogOn`, not `-AtStartup`**: they start
 **when you log in**, not when the machine boots. A box that powers on and sits at the login screen is
 running none of them.
@@ -215,12 +241,12 @@ would report on SYSTEM's hive instead of yours.
 
 > **Security note:** the servers bind `127.0.0.1` with **no authentication**. Any process on this box —
 > including unprivileged ones — can call them. The twelve diagnostic servers are read-only, making their
-> elevated data an information-disclosure concern. `dtmsdk` and `obsidian` also expose write-capable tools
-> behind per-command confirmation gates; those gates are part of their safety boundary, not a reason to
+> elevated data an information-disclosure concern. `dtmsdk`, `obsidian`, and `dtm_deploy` also expose
+> write-capable tools behind per-command confirmation gates; those gates are part of their safety boundary, not a reason to
 > treat the full suite as read-only. This loopback API is therefore appropriate only on a trusted,
 > single-user diagnostic box; do not run it on a machine with untrusted local users.
 
-**Turning servers on and off at runtime:** goose_web's sidebar has a per-MCP toggle for all 14 local MCPs
+**Turning servers on and off at runtime:** goose_web's sidebar has a per-MCP toggle for all 16 local MCPs
 (it flips `enabled:` in `config.yaml`, which the next `goose run` re-reads — no restart). See
 [`../goose_web/README.md`](../goose_web/README.md).
 
