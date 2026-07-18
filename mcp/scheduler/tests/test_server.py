@@ -57,24 +57,39 @@ def test_run_now_skips_already_running(tmp_path):
     assert result == {"error": "already running", "id": rec["id"]}
     assert fired == []                                   # runner NOT invoked on overlap
 
-def test_run_now_fires_in_background_and_returns_immediately(tmp_path):
+def test_run_now_returns_before_runner_completes(tmp_path):
     # run_now must not block on the goose subprocess: it hands the fire-off to a background
-    # daemon thread (same pattern as Ticker.start()'s loop) and returns right away. Exercised
-    # with a fake runner that signals an Event so the test doesn't depend on wall-clock sleeps
-    # or a real `goose` subprocess.
+    # daemon thread (same pattern as Ticker.start()'s loop) and returns right away. The runner
+    # here BLOCKS on `gate` until the test releases it; run_now must return *while the runner is
+    # still blocked*. A synchronous run_now could never reach the `assert not gate.is_set()` line
+    # without first setting `gate`, so this catches a regression back to synchronous firing.
     s = mkstore(tmp_path)
     rec = s.create(dict(name="h", kind="cron", expr="0 9 * * *",
                         session="cron_h", prompt="hi", mode="auto"))
-    ran_event = threading.Event()
-    fired = []
-    def fake_runner(store, cfg, sched):
-        fired.append(sched["id"])
-        ran_event.set()
+    gate = threading.Event()        # test controls when the runner may finish
+    started = threading.Event()     # runner signals it has begun
+    recorded = threading.Event()    # fires once the background run is recorded
+    def blocking_runner(store, cfg, sched):
+        started.set()
+        gate.wait(5)                # block until the test releases us
         return 0
+    # settle signal without wall-clock sleeps: wrap the store's record_run so the test
+    # can wait on the exact moment the background thread finishes recording the run.
+    _orig_record = s.record_run
+    def _record(*a, **k):
+        r = _orig_record(*a, **k)
+        recorded.set()
+        return r
+    s.record_run = _record
     t = server.Ticker(s, {"workspace": ".", "default_max_turns": 5, "goose_bin": "goose"},
-                      runner=fake_runner)
+                      runner=blocking_runner)
     result = server.run_now(s, t, rec["id"])
-    assert result == {"started": rec["id"]}               # returns immediately, no blocking
-    assert ran_event.wait(timeout=5), "background runner never fired"
-    assert fired == [rec["id"]]
-    assert s.get(rec["id"])["last_status"] == "ok"         # store recorded the run
+    assert result == {"started": rec["id"]}               # returned immediately...
+    assert started.wait(2)                                # ...runner is running in background
+    # KEY: while the runner is still blocked, run_now has ALREADY returned. A synchronous
+    # run_now could never have reached this line without gate having been set.
+    assert not gate.is_set()
+    assert s.get(rec["id"])["last_status"] == "running"   # mark_running ran; run not yet recorded
+    gate.set()                                            # release the runner
+    assert recorded.wait(5)                               # background thread records the run
+    assert s.get(rec["id"])["last_status"] == "ok"         # store recorded the completed run
