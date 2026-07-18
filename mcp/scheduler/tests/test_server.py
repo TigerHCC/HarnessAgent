@@ -41,3 +41,17 @@ def test_ticker_skips_running_job(tmp_path):
     t = server.Ticker(s, {"workspace": ".", "default_max_turns": 5, "goose_bin": "goose"},
                       runner=lambda *a: (_ for _ in ()).throw(AssertionError("should not fire")))
     t.tick(datetime(2026, 7, 18, 10, 0))                 # no exception => running job skipped
+
+def test_run_now_skips_already_running(tmp_path):
+    s = mkstore(tmp_path)
+    rec = s.create(dict(name="h", kind="cron", expr="0 9 * * *",
+                        session="cron_h", prompt="hi", mode="auto"))
+    s.mark_running(rec["id"])                             # simulate an in-flight run
+    fired = []
+    def fake_runner(store, cfg, sched):
+        fired.append(sched["id"]); return 0
+    t = server.Ticker(s, {"workspace": ".", "default_max_turns": 5, "goose_bin": "goose"},
+                      runner=fake_runner)
+    result = server.run_now(s, t, rec["id"])
+    assert result == {"error": "already running", "id": rec["id"]}
+    assert fired == []                                   # runner NOT invoked on overlap

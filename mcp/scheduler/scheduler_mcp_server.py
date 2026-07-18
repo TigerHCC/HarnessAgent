@@ -29,28 +29,34 @@ _TOKENS_LOCK = threading.Lock()
 # ---- confirm-token gate ---------------------------------------------------
 def gate(action, args, confirm_token, do):
     """Preview→confirm gate. Empty/invalid token -> return a preview; valid token -> run do() and return
-    its result. Tokens are single-use with a TTL."""
+    its result. Tokens are single-use with a TTL. The lock only guards the _TOKENS dict; do() runs after
+    it is released so a slow do() (e.g. a blocking `goose run`) never blocks other mutating tools."""
     now = time.time()
+    authorized = False
     with _TOKENS_LOCK:
         if confirm_token:
             rec = _TOKENS.get(confirm_token)
             if rec and rec[0] == action and rec[1] == args \
                     and policy.verify_token(action, args, confirm_token, now=now, issued_at=rec[2]):
-                del _TOKENS[confirm_token]
-                return do()
-            confirm_token = ""                  # fall through to re-preview
-        # prune expired previews
-        for t in [t for t, r in _TOKENS.items() if now - r[2] > policy.TOKEN_TTL_SECONDS]:
-            _TOKENS.pop(t, None)
-        token = policy.make_token(action, args)
-        _TOKENS[token] = (action, args, now)
+                del _TOKENS[confirm_token]      # single-use: delete before execute
+                authorized = True
+            else:
+                confirm_token = ""              # fall through to re-preview
+        if not authorized:
+            # prune expired previews, then issue a fresh preview token
+            for t in [t for t, r in _TOKENS.items() if now - r[2] > policy.TOKEN_TTL_SECONDS]:
+                _TOKENS.pop(t, None)
+            token = policy.make_token(action, args)
+            _TOKENS[token] = (action, args, now)
+    if authorized:
+        return do()                             # outside the lock
     return {"requires_confirmation": True, "confirm_token": token, "action": action,
             "expires_in_seconds": policy.TOKEN_TTL_SECONDS}
 
 
 # ---- goose firing + ticker ------------------------------------------------
 def fire_goose(store, cfg, sched):
-    """Spawn `goose run` for one schedule, tee output to a run log, return the exit code."""
+    """Spawn `goose run` for one schedule, tee output to a run log, return (returncode, log_path)."""
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     log_dir = os.path.join(cfg.get("runs_dir", store.runs_dir), sched["id"])
     os.makedirs(log_dir, exist_ok=True)
@@ -151,16 +157,23 @@ def sched_resume(id: str, confirm_token: str = "") -> dict:
     return gate("sched_resume", {"id": id}, confirm_token, lambda: _STORE.set_enabled(id, True))
 
 
+def run_now(store, ticker, id):
+    """Fire one schedule out of band, respecting the running-job overlap guard. Returns an 'already
+    running' error rather than starting a second concurrent run on the same session."""
+    rec = store.get(id)
+    if not rec:
+        return {"error": "unknown schedule id: %s" % id}
+    if rec.get("last_status") == "running":
+        return {"error": "already running", "id": id}
+    ticker._fire_one(rec, datetime.now())
+    return {"ran": id, "last_status": store.get(id)["last_status"]}
+
+
 @mcp.tool()
 def sched_run_now(id: str, confirm_token: str = "") -> dict:
     """Fire a schedule immediately, out of band. Confirm-gated."""
-    def _do():
-        rec = _STORE.get(id)
-        if not rec:
-            return {"error": "unknown schedule id: %s" % id}
-        _TICKER._fire_one(rec, datetime.now())
-        return {"ran": id, "last_status": _STORE.get(id)["last_status"]}
-    return gate("sched_run_now", {"id": id}, confirm_token, _do)
+    return gate("sched_run_now", {"id": id}, confirm_token,
+                lambda: run_now(_STORE, _TICKER, id))
 
 
 @mcp.tool()
