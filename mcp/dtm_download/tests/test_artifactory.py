@@ -194,3 +194,29 @@ def test_download_build_writes_download_log(monkeypatch, tmp_path):
     assert "(1/1) a.zip" in log_text              # per-file start line
     assert "done" in log_text                     # completion line
     assert res["build_id"] == "B1"
+
+
+def test_download_build_lines_print_exactly_once(monkeypatch, tmp_path, capsys):
+    cfg = {"artifactory_base_url": "https://x", "repo": "r", "download_path": str(tmp_path),
+           "zip_filter": ["*"], "csv_files": [], "html_files": [], "default_channel": "Daily"}
+    monkeypatch.setattr(artifactory, "resolve_latest_build", lambda *a, **k: "B1")
+    monkeypatch.setattr(artifactory, "discover_zip_files", lambda *a, **k: ["a.zip"])
+    monkeypatch.setattr(artifactory, "_PROGRESS_STEP", 4)
+
+    def fake_get(*a, **k):
+        return FakeResponse(chunks=[b"aaaa", b"bbbb"], headers={"Content-Length": "8"})
+    monkeypatch.setattr(artifactory.requests, "get", fake_get)   # real download_file runs
+    monkeypatch.setattr(artifactory, "verify_checksum", lambda *a, **k: (True, "SHA256 verified"))
+    monkeypatch.setattr(artifactory, "extract_zip", lambda *a, **k: 3)
+
+    artifactory.download_build(cfg, "tok")
+    out_lines = capsys.readouterr().out.splitlines()
+    log_lines = (tmp_path / "B1" / "download.log").read_text(encoding="utf-8").splitlines()
+    # the per-file start line and each chunk-progress line: exactly once on stdout AND in the log
+    start = [l for l in out_lines if "(1/1) a.zip" in l and "done" not in l]
+    assert len(start) == 1
+    progress = [l for l in out_lines if "%" in l]
+    assert progress                                   # chunk lines exist
+    for line in set(progress + start):
+        assert out_lines.count(line) == 1, line
+        assert log_lines.count(line) == 1, line
