@@ -8,10 +8,12 @@ import artifactory
 
 
 class FakeResponse:
-    def __init__(self, status_code=200, json_body=None, content=b""):
+    def __init__(self, status_code=200, json_body=None, content=b"", headers=None, chunks=None):
         self.status_code = status_code
         self._json_body = json_body
         self._content = content
+        self._chunks = chunks          # optional list of byte chunks for iter_content
+        self.headers = headers or {}
 
     def json(self):
         if self._json_body is None:
@@ -19,7 +21,11 @@ class FakeResponse:
         return self._json_body
 
     def iter_content(self, chunk_size=1):
-        yield self._content
+        if self._chunks is not None:
+            for c in self._chunks:
+                yield c
+        else:
+            yield self._content
 
     def __enter__(self):
         return self
@@ -119,3 +125,72 @@ def test_download_build_requires_token():
     with pytest.raises(artifactory.ArtifactoryError):
         artifactory.download_build({"artifactory_base_url": "https://x", "repo": "r",
                                     "download_path": "d"}, token="")
+
+
+def test_download_file_emits_progress_with_percent(monkeypatch, tmp_path, capsys):
+    # shrink the step so tiny fake chunks cross it
+    monkeypatch.setattr(artifactory, "_PROGRESS_STEP", 4)
+    chunks = [b"aaaa", b"bbbb", b"cc"]          # 10 bytes total
+    resp = FakeResponse(content=b"", chunks=chunks, headers={"Content-Length": "10"})
+    monkeypatch.setattr(artifactory.requests, "get", lambda *a, **k: resp)
+    out = tmp_path / "f.zip"
+    got = []
+    artifactory.download_file("https://x", "repo/f.zip", "tok", str(out),
+                              label="f.zip", log=got.append)
+    assert out.read_bytes() == b"aaaabbbbcc"
+    assert any("%" in line and "f.zip" in line for line in got)      # percent shown
+    assert any("f.zip" in line for line in capsys.readouterr().out.splitlines())
+
+
+def test_download_file_progress_without_content_length(monkeypatch, tmp_path):
+    monkeypatch.setattr(artifactory, "_PROGRESS_STEP", 4)
+    resp = FakeResponse(chunks=[b"aaaa", b"bbbb"], headers={})
+    monkeypatch.setattr(artifactory.requests, "get", lambda *a, **k: resp)
+    got = []
+    artifactory.download_file("https://x", "repo/f.zip", "tok", str(tmp_path / "f.zip"),
+                              label="f.zip", log=got.append)
+    assert got and all("%" not in line for line in got)              # cumulative-only format
+
+
+def test_download_file_defaults_unchanged(monkeypatch, tmp_path):
+    # no label/log: behaves exactly as before (writes content, returns path)
+    monkeypatch.setattr(artifactory.requests, "get",
+                        lambda *a, **k: FakeResponse(content=b"hello"))
+    out = tmp_path / "f.zip"
+    assert artifactory.download_file("https://x", "repo/f.zip", "tok", str(out)) == str(out)
+    assert out.read_bytes() == b"hello"
+
+
+def test_dllog_writes_both_and_survives_write_failure(tmp_path, capsys):
+    p = tmp_path / "download.log"
+    dlog = artifactory._DlLog(str(p))
+    dlog.emit("[dl] line one")
+    dlog._fh.close()                              # force subsequent writes to fail
+    dlog.emit("[dl] line two")                    # must not raise; warns once, disables file
+    dlog.emit("[dl] line three")
+    dlog.close()
+    assert "[dl] line one" in p.read_text(encoding="utf-8")
+    out = capsys.readouterr().out
+    assert out.count("could not write") == 1      # one-time warning
+    assert "[dl] line three" in out               # stdout still gets every line
+
+
+def test_download_build_writes_download_log(monkeypatch, tmp_path):
+    cfg = {"artifactory_base_url": "https://x", "repo": "r", "download_path": str(tmp_path),
+           "zip_filter": ["*"], "csv_files": [], "html_files": [], "default_channel": "Daily"}
+    monkeypatch.setattr(artifactory, "resolve_latest_build", lambda *a, **k: "B1")
+    monkeypatch.setattr(artifactory, "discover_zip_files", lambda *a, **k: ["a.zip"])
+
+    def fake_download(base, path, tok, out, timeout=600, label="", log=None):
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with open(out, "wb") as f:
+            f.write(b"x")
+        return out
+    monkeypatch.setattr(artifactory, "download_file", fake_download)
+    monkeypatch.setattr(artifactory, "verify_checksum", lambda *a, **k: (True, "SHA256 verified"))
+    monkeypatch.setattr(artifactory, "extract_zip", lambda *a, **k: 3)
+    res = artifactory.download_build(cfg, "tok")
+    log_text = (tmp_path / "B1" / "download.log").read_text(encoding="utf-8")
+    assert "(1/1) a.zip" in log_text              # per-file start line
+    assert "done" in log_text                     # completion line
+    assert res["build_id"] == "B1"

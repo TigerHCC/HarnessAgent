@@ -33,6 +33,13 @@ returns into `dtm_deploy`'s `dtm_install` tool. The two servers share no state o
 from `config.json` and never accepted as a tool argument, so it cannot leak into a committed file, an
 LLM prompt, or a tool-call log.
 
+## Progress & logging
+
+Downloads emit `[dl] ...` progress lines (every 25 MB per file) to stdout, which lands in
+`logs/mcp/dtm_download.stdout.log`. Each build also writes a self-contained `download.log` beside its
+artifacts (`<download_path>/<build_id>/download.log`), so you can tail a single build's progress and
+per-file/per-CSV/per-doc results without wading through the server's full stdout history.
+
 ## Running
 
 ```powershell
