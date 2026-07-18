@@ -1,0 +1,9 @@
+{
+  "workspace": "${repo_root}/workspace",
+  "schedules_path": "${repo_root}/mcp/scheduler/state/schedules.json",
+  "runs_dir": "${repo_root}/mcp/scheduler/state/runs",
+  "tick_seconds": 30,
+  "default_max_turns": 50,
+  "history_limit": 20,
+  "goose_bin": ""
+}
