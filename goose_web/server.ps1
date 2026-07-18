@@ -380,6 +380,53 @@ function Discover-Extension($e, $gooseBin) {
     foreach ($t in $etools) { $rows += @{ group = $e.id; name = $t.name; desc = (Short-Desc $t.description) } }
     return @{ ext = @{ id = $e.id; name = $e.name; transport = $e.type; status = $status; count = @($etools).Count; detail = $detail; enabled = $true; togglable = $togglable }; tools = $rows }
 }
+
+# --- scheduler control (Task 8): pure helpers + MCP tools/call wrapper --------
+# Kept byte-identical in goose_web/schedules_helpers_under_test.ps1 so the unit
+# test can dot-source them without pulling in the whole $DiscoveryFns string.
+function Merge-ConfirmArgs($arguments, $token) {
+    $out = @{}; foreach ($k in $arguments.Keys) { $out[$k] = $arguments[$k] }
+    $out['confirm_token'] = $token
+    return $out
+}
+function Parse-McpResult($obj) {
+    if ($null -eq $obj -or $null -eq $obj.result) { return $null }
+    if ($obj.result.PSObject.Properties['structuredContent'] -and $obj.result.structuredContent) {
+        return $obj.result.structuredContent
+    }
+    if ($obj.result.content) {
+        foreach ($c in $obj.result.content) {
+            if ($c.type -eq 'text' -and $c.text) { try { return ($c.text | ConvertFrom-Json) } catch {} }
+        }
+    }
+    return $obj.result
+}
+
+function Resolve-SchedulerUri($configPath) {
+    foreach ($e in (Parse-GooseExtensions $configPath)) {
+        if ($e.id -eq 'scheduler' -and $e.uri) { return $e.uri }
+    }
+    return 'http://127.0.0.1:8793/mcp'          # fallback: canonical loopback endpoint
+}
+
+function Invoke-SchedulerTool($uri, $name, $arguments, $timeoutMs = 8000) {
+    # initialize -> tools/call, then auto-confirm the preview->confirm two-step (the UI click IS the
+    # human confirmation, so goose_web completes it without weakening the agent-path gate).
+    $init = @{ jsonrpc='2.0'; id=1; method='initialize'; params=@{ protocolVersion='2025-06-18'; capabilities=@{}; clientInfo=@{ name='goose_web'; version='1' } } }
+    $r1 = Invoke-McpHttp $uri $init $null $timeoutMs
+    $sid = $r1.sid
+    try { [void](Invoke-McpHttp $uri @{ jsonrpc='2.0'; method='notifications/initialized' } $sid $timeoutMs) } catch {}
+    $callBody = @{ jsonrpc='2.0'; id=2; method='tools/call'; params=@{ name=$name; arguments=$arguments } }
+    $r2 = Invoke-McpHttp $uri $callBody $sid $timeoutMs
+    $res = Parse-McpResult (ConvertFrom-McpBody $r2.text)
+    if ($res -and $res.PSObject.Properties['requires_confirmation'] -and $res.requires_confirmation -and $res.confirm_token) {
+        $confArgs = Merge-ConfirmArgs $arguments $res.confirm_token
+        $callBody2 = @{ jsonrpc='2.0'; id=3; method='tools/call'; params=@{ name=$name; arguments=$confArgs } }
+        $r3 = Invoke-McpHttp $uri $callBody2 $sid $timeoutMs
+        $res = Parse-McpResult (ConvertFrom-McpBody $r3.text)
+    }
+    return $res
+}
 '@
 
 # Fold in the per-MCP toggle helpers and the UTF-8 request decoders so both the main
@@ -656,6 +703,35 @@ $worker = {
         Send-Json $ctx @{ ok = $true; id = $extId; enabled = $enabled }
     }
 
+    function Handle-Schedules($ctx, $S) {
+        if ($S.token) {
+            $sup = $ctx.Request.Headers['X-Goose-Token']; if (-not $sup) { $sup = Get-QueryValue $ctx.Request.Url.Query 'token' }
+            if ($sup -ne $S.token) { Send-Json $ctx @{ error = 'unauthorized' } 401; return }
+        }
+        $uri = Resolve-SchedulerUri $S.gooseConfig
+        try {
+            if ($ctx.Request.HttpMethod -eq 'GET') {
+                $res = Invoke-SchedulerTool $uri 'sched_list' @{}
+                Send-Json $ctx @{ ok = $true; schedules = @($res.schedules) }; return
+            }
+            $req = $null; $bt = Read-Utf8Body $ctx
+            try { if ($bt.Trim()) { $req = $bt | ConvertFrom-Json } } catch {}
+            if ($null -eq $req -or -not $req.action) { Send-Json $ctx @{ error = 'action required' } 400; return }
+            switch ($req.action) {
+                'create'  { $res = Invoke-SchedulerTool $uri 'sched_create' @{ name=$req.name; kind=$req.kind; expr=$req.expr; session=$req.session; prompt=$req.prompt; mode=$req.mode } }
+                'update'  { $res = Invoke-SchedulerTool $uri 'sched_update' @{ id=$req.id; fields=$req.fields } }
+                'delete'  { $res = Invoke-SchedulerTool $uri 'sched_delete' @{ id=$req.id } }
+                'toggle'  { $res = Invoke-SchedulerTool $uri (if ($req.enabled) { 'sched_resume' } else { 'sched_pause' }) @{ id=$req.id } }
+                'run-now' { $res = Invoke-SchedulerTool $uri 'sched_run_now' @{ id=$req.id } }
+                'history' { $res = Invoke-SchedulerTool $uri 'sched_history' @{ id=$req.id } }
+                default   { Send-Json $ctx @{ error = "unknown action: $($req.action)" } 400; return }
+            }
+            Send-Json $ctx @{ ok = $true; result = $res }
+        } catch {
+            Send-Json $ctx @{ error = "scheduler offline: $_" } 502
+        }
+    }
+
     function Build-Health($S) {
         $cfg = $S.cfg
         $snap = Get-ProviderSnapshot $cfg $S.gooseConfig   # live: env > goose config.yaml > config.json fallback
@@ -866,6 +942,7 @@ $worker = {
             if ($req.HttpMethod -eq 'GET') {
                 if ($path -eq '/' -or $path -eq '/index.html') { Send-File $ctx $S.indexPath 'text/html; charset=utf-8' }
                 elseif ($path -eq '/api/health') { Send-Json $ctx (Build-Health $S) }
+                elseif ($path -eq '/api/schedules') { Handle-Schedules $ctx $S }
                 else { Send-Json $ctx @{ error = 'not found' } 404 }
             } elseif ($req.HttpMethod -eq 'POST' -and $path -eq '/api/chat') {
                 $streamed = $true; Handle-Chat $ctx $S
@@ -873,6 +950,8 @@ $worker = {
                 Handle-Upload $ctx $S
             } elseif ($req.HttpMethod -eq 'POST' -and $path -eq '/api/extensions/toggle') {
                 Handle-Toggle $ctx $S
+            } elseif ($req.HttpMethod -eq 'POST' -and $path -eq '/api/schedules') {
+                Handle-Schedules $ctx $S
             } else {
                 Send-Json $ctx @{ error = 'not found' } 404
             }
