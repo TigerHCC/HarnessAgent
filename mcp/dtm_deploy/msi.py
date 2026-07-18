@@ -4,6 +4,7 @@ Invoke-MsiWithProgress). Property reads + RelatedProducts use the WindowsInstall
 (win32com); the actual install/uninstall action still shells out to msiexec.exe (there is no
 COM-only way to run a full MSI install with logging) via subprocess.
 """
+import codecs
 import os
 import re
 import subprocess
@@ -165,11 +166,30 @@ def run_msiexec(args_list, log_file):
     return proc.returncode, log_file
 
 
+def tail_log(log_file, n=40):
+    """Last n lines of an msiexec verbose log. msiexec /l*v writes UTF-16LE (usually with a BOM);
+    BOM-less UTF-16LE and plain UTF-8 are handled too. Never raises -- an unreadable file yields a
+    single placeholder entry, because this feeds a result dict, not control flow."""
+    try:
+        with open(log_file, "rb") as f:
+            raw = f.read()
+        if raw.startswith(codecs.BOM_UTF16_LE) or raw.startswith(codecs.BOM_UTF16_BE):
+            text = raw.decode("utf-16", errors="replace")
+        elif b"\x00" in raw[:200]:
+            text = raw.decode("utf-16-le", errors="replace")   # BOM-less msiexec log
+        else:
+            text = raw.decode("utf-8", errors="replace")
+        return text.splitlines()[-n:]
+    except OSError as e:
+        return ["<unreadable: %s>" % e]
+
+
 def uninstall_product(product_code, log_dir):
     safe_code = re.sub(r"[{}]", "", product_code)
     log_file = os.path.join(log_dir, "uninstall_%s.log" % safe_code)
     exit_code, log_file = run_msiexec(["/x", product_code], log_file)
     return {"product_code": product_code, "exit_code": exit_code, "log_file": log_file,
+            "log_tail": tail_log(log_file),
             "reboot_required": exit_code == 3010, "success": exit_code in (0, 3010)}
 
 
@@ -179,6 +199,7 @@ def install_msi(msi_path, log_dir):
     log_file = os.path.join(log_dir, "install_%s.log" % safe_code)
     exit_code, log_file = run_msiexec(["/i", msi_path], log_file)
     return {"msi_path": msi_path, "properties": props, "exit_code": exit_code, "log_file": log_file,
+            "log_tail": tail_log(log_file),
             "reboot_required": exit_code == 3010, "success": exit_code in (0, 3010)}
 
 

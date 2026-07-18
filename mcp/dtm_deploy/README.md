@@ -33,6 +33,8 @@ again with that token executes the action. Single-use, 120s TTL by default (`con
 | `dtm_verify_heartbeat(log_path="", advance_days=1, wait_seconds=3300, skip_date_change=False, build_version="")` | no | Advances the system date, polls the transmission log for HB/OTP success, restores the date (`finally`). Blocks for up to `wait_seconds`; treat as heavyweight even though it is not confirm-gated. |
 | `dtm_deploy_health()` | no | admin state, DellTechHub service state, resolved paths, gated/safe tool lists. |
 
+`dtm_install` and `dtm_uninstall` result dicts include `log_tail` (the last 40 lines of the msiexec verbose log), making failures diagnosable without opening the full `log_file` on disk.
+
 > The server binds loopback with **no authentication**. Any local process can reach it, so on this box
 > the confirmation gate is the only thing standing between a caller and a real uninstall/install.
 
