@@ -10,14 +10,16 @@
   fresh machine, then this. Requires: an elevated PowerShell (Scheduled Tasks + the servers read
   SYSTEM-hive / kernel data), Python 3 on PATH with pip.
 
-  The 16 servers (all loopback, streamable HTTP). The first 12 are read-only diagnostic MCPs:
+  The 17 servers (all loopback, streamable HTTP). The first 12 are read-only diagnostic MCPs:
     srum 8777, eventlog 8778, crash 8779, exec 8780, drift 8781, netconn 8782, perfmon 8783,
     disk 8784, procinspect 8785, memstate 8786, filterstack 8787, winupdate 8788
   dtmsdk 8789 is the DTM Sample/SDK util MCP -- NOT read-only (transmits telemetry / changes DTP config;
   gated per-command). obsidian 8790 is the Obsidian vault MCP -- writes markdown notes (gated per-note).
   dtm_download 8791 downloads DTP builds from Artifactory (writes only into its own download_path).
-  dtm_deploy 8792 wraps DTP uninstall/install/consent/plugin/transmission (gated per-tool). obsidian and
-  dtm_download are the only two servers that run UNELEVATED (RunLevel Limited).
+  dtm_deploy 8792 wraps DTP uninstall/install/consent/plugin/transmission (gated per-tool). scheduler 8793
+  fires headless `goose run` agent tasks on cron/at schedules (confirm-token gated mutating tools + direct
+  read tools). obsidian, dtm_download, and scheduler are the only three servers that run UNELEVATED
+  (RunLevel Limited).
   This setup also installs Sysmon (kernel driver + audit config; -SkipSysmon to opt out) to feed eventlog.
 
   NOTE ON PRIVILEGE: this INSTALLER needs Administrator (registering a RunLevel-Highest Scheduled

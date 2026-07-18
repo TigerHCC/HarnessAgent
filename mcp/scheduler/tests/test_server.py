@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime
 import server
 from store import Store
@@ -55,3 +56,25 @@ def test_run_now_skips_already_running(tmp_path):
     result = server.run_now(s, t, rec["id"])
     assert result == {"error": "already running", "id": rec["id"]}
     assert fired == []                                   # runner NOT invoked on overlap
+
+def test_run_now_fires_in_background_and_returns_immediately(tmp_path):
+    # run_now must not block on the goose subprocess: it hands the fire-off to a background
+    # daemon thread (same pattern as Ticker.start()'s loop) and returns right away. Exercised
+    # with a fake runner that signals an Event so the test doesn't depend on wall-clock sleeps
+    # or a real `goose` subprocess.
+    s = mkstore(tmp_path)
+    rec = s.create(dict(name="h", kind="cron", expr="0 9 * * *",
+                        session="cron_h", prompt="hi", mode="auto"))
+    ran_event = threading.Event()
+    fired = []
+    def fake_runner(store, cfg, sched):
+        fired.append(sched["id"])
+        ran_event.set()
+        return 0
+    t = server.Ticker(s, {"workspace": ".", "default_max_turns": 5, "goose_bin": "goose"},
+                      runner=fake_runner)
+    result = server.run_now(s, t, rec["id"])
+    assert result == {"started": rec["id"]}               # returns immediately, no blocking
+    assert ran_event.wait(timeout=5), "background runner never fired"
+    assert fired == [rec["id"]]
+    assert s.get(rec["id"])["last_status"] == "ok"         # store recorded the run

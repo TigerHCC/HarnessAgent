@@ -147,12 +147,41 @@ the backend MCP server process.
 - The first edit backs up `config.yaml` to `config.yaml.bak-webtoggle` (once). Writes are
   atomic and honor a read-only durability guard on the config file.
 
+## Schedules (`/api/schedules`)
+The sidebar shows a live summary of the schedules registered with the `scheduler` MCP
+(`mcp/scheduler/`, port 8793 — see [`../mcp/README.md`](../mcp/README.md)):
+a count, and per-schedule rows (enabled dot, name, cadence label). Switching to the
+in-app **Schedules** view swaps the transcript/composer for a table (next run, last
+status, an enable/disable checkbox, and ▶ run-now / ✎ edit / 🗑 delete / ⧗ history
+row actions) plus a create/edit drawer for name/kind (`cron` expr or `at` ISO
+datetime)/session/prompt/mode.
+
+- `GET /api/schedules` — proxies `sched_list`; returns `{ok, schedules}`.
+- `POST /api/schedules` — `{action, ...}` where `action` is one of `create`, `update`,
+  `delete`, `toggle`, `run-now`, `history`, each mapped to the matching `sched_*` MCP
+  tool (`toggle` calls `sched_resume`/`sched_pause` depending on `enabled`).
+
+Both endpoints reach the scheduler the same way every other local MCP is reached —
+`tools/call` over `streamable_http` — not a database or file shared with `scheduler`.
+The scheduler's mutating tools (`sched_create`/`sched_update`/`sched_delete`/
+`sched_pause`/`sched_resume`/`sched_run_now`) are confirm-token gated to protect the
+chat-agent path; `Invoke-SchedulerTool` in `server.ps1` auto-completes that
+preview→confirm two-step (call once, and if the result carries a `confirm_token`,
+immediately replay the same call with it attached) because the UI click that triggered
+the request already **is** the human confirmation — the same pattern used for the
+per-MCP toggle above. `sched_run_now` fires the schedule on a background thread and
+returns immediately, so "Run now" doesn't wait for the (possibly minutes-long) goose
+run to finish. As with the extension toggle, this is currently implemented in
+`server.ps1` only (`server.py` does not yet expose `/api/schedules`).
+
 ## Endpoints
 - `GET /` — the chat page
 - `GET /api/health` — **live model/provider from goose's `config.yaml`** (`model`, `provider`, `provider_name`) + backend status (`backends[].active` marks goose's current provider) + **live-discovered MCP extensions + tool list** (snapshot cache, version cached at startup)
 - `POST /api/chat` — `{session, message, mode, attachments?}` → streamed NDJSON events
 - `POST /api/upload?session=&name=` — raw file bytes in the body → saved to `workspace/uploads/<session>/`; returns `{ok, name, size}`
 - `POST /api/extensions/toggle` — `{id, enabled}` → flips one MCP's `enabled:` in `config.yaml`
+- `GET /api/schedules` — list schedules from the `scheduler` MCP
+- `POST /api/schedules` — `{action, ...}` → create/update/delete/toggle/run-now/history against the `scheduler` MCP
 
 ## Text encoding (non-ASCII / CJK input)
 Everything on the wire is **UTF-8**, and `server.ps1` decodes it as UTF-8 **explicitly** — see

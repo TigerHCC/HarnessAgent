@@ -158,15 +158,17 @@ def sched_resume(id: str, confirm_token: str = "") -> dict:
 
 
 def run_now(store, ticker, id):
-    """Fire one schedule out of band, respecting the running-job overlap guard. Returns an 'already
+    """Fire one schedule out of band, respecting the running-job overlap guard. The actual goose run
+    happens on a background daemon thread (exactly like the ticker's .start() loop) so this returns
+    immediately instead of blocking on `goose run`, which can take minutes. Returns an 'already
     running' error rather than starting a second concurrent run on the same session."""
     rec = store.get(id)
     if not rec:
         return {"error": "unknown schedule id: %s" % id}
     if rec.get("last_status") == "running":
         return {"error": "already running", "id": id}
-    ticker._fire_one(rec, datetime.now())
-    return {"ran": id, "last_status": store.get(id)["last_status"]}
+    threading.Thread(target=ticker._fire_one, args=(rec, datetime.now()), daemon=True).start()
+    return {"started": id}
 
 
 @mcp.tool()
