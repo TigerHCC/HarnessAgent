@@ -142,5 +142,14 @@
     "run_level": "Highest",
     "description": "DTP uninstall/install/consent/plugin/transmission/verify (the elevated half of the Run-DTPSetup.ps1 pipeline) via local elevated MCP server (127.0.0.1:8792). NOT read-only -- uninstall/install/consent/plugin/transmission/run_pipeline are confirmation-gated; verify tools run directly.",
     "health_tool": "dtm_deploy_health"
+  },
+  {
+    "name": "scheduler",
+    "directory": "scheduler",
+    "port": 8793,
+    "task": "Scheduler-MCP",
+    "run_level": "Limited",
+    "description": "Fires headless `goose run` agent tasks on cron/one-shot schedules via local MCP server (127.0.0.1:8793). Runs UNELEVATED; create/update/delete/pause/resume/run_now are confirm-token gated, list/get/history/health run directly. goose_web controls it over MCP tools/call.",
+    "health_tool": "scheduler_health"
   }
 ]

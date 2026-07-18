@@ -80,7 +80,7 @@ try {
   $manifestEntries = @($decodedManifest | ForEach-Object { $_ })
 }
 catch { Die "Invalid MCP manifest JSON: $_" }
-if ($manifestEntries.Count -ne 16) { Die "MCP manifest must contain exactly 16 entries on canonical ports 8777-8792; found $($manifestEntries.Count) entries." }
+if ($manifestEntries.Count -ne 17) { Die "MCP manifest must contain exactly 17 entries on canonical ports 8777-8793; found $($manifestEntries.Count) entries." }
 
 $MCPS = New-Object System.Collections.ArrayList
 $seenNames = @{}
@@ -88,7 +88,7 @@ $seenPorts = @{}
 $seenTasks = @{}
 $textFields = @("name","directory","task","run_level","description","health_tool")
 $integerTypes = @([byte],[sbyte],[int16],[uint16],[int32],[uint32],[int64],[uint64])
-$expectedPorts = @(8777..8792)
+$expectedPorts = @(8777..8793)
 foreach ($entry in $manifestEntries) {
   foreach ($field in @("name","directory","port","task","run_level","description","health_tool")) {
     if ($null -eq $entry.$field) {
@@ -105,7 +105,7 @@ foreach ($entry in $manifestEntries) {
   }
   if ($entry.run_level -notin @("Highest","Limited")) { Die "Invalid run_level for $($entry.name): $($entry.run_level)" }
   if ($entry.port -notin $expectedPorts) {
-    Die "MCP manifest must use canonical ports 8777-8792 exactly once."
+    Die "MCP manifest must use canonical ports 8777-8793 exactly once."
   }
   if ($seenNames.ContainsKey($entry.name)) { Die "MCP manifest contains duplicate name: $($entry.name)" }
   if ($seenPorts.ContainsKey($entry.port)) { Die "MCP manifest contains duplicate port: $($entry.port)" }
@@ -119,7 +119,7 @@ foreach ($entry in $manifestEntries) {
 }
 $actualPorts = @($seenPorts.Keys | ForEach-Object { [int]$_ } | Sort-Object)
 if (@(Compare-Object -ReferenceObject $expectedPorts -DifferenceObject $actualPorts).Count) {
-  Die "MCP manifest must use canonical ports 8777-8792 exactly once."
+  Die "MCP manifest must use canonical ports 8777-8793 exactly once."
 }
 
 . (Join-Path $here "scripts\mcp_task_helpers.ps1")
@@ -128,7 +128,7 @@ if (-not $powershell) { Die "Windows PowerShell not found on PATH." }
 $logRoot = Join-Path $here "logs\mcp"
 
 $mode = if ($Uninstall) { "UNINSTALL" } else { "setup" }
-Write-Host "=== HarnessAgent MCP servers $mode (16: 12 diagnostic + dtmsdk + obsidian + dtm_download + dtm_deploy) ===" -ForegroundColor Magenta
+Write-Host "=== HarnessAgent MCP servers $mode (17: 12 diagnostic + dtmsdk + obsidian + dtm_download + dtm_deploy + scheduler) ===" -ForegroundColor Magenta
 
 # --- 0. Prereqs ---
 # Admin is needed to register/unregister a RunLevel-Highest Scheduled Task. It is NOT a statement
