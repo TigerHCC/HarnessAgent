@@ -350,6 +350,37 @@
     </div>
   </main>
 
+  <div class="drawer" id="schedDrawer" style="display:none">
+    <div class="dw-card">
+      <h3 id="dwTitle">新排程</h3>
+      <input type="hidden" id="dwId">
+      <label>名稱 <input id="dwName"></label>
+      <label>類型
+        <select id="dwKind"><option value="cron">週期 (cron)</option><option value="at">一次性 (at)</option></select>
+      </label>
+      <label>預設
+        <select id="dwPreset">
+          <option value="">— 自訂 —</option>
+          <option value="0 * * * *">每小時</option>
+          <option value="0 9 * * *">每日 09:00</option>
+          <option value="0 9 * * 1">每週一 09:00</option>
+        </select>
+      </label>
+      <label id="dwCronWrap">cron / 時間 <input id="dwExpr" placeholder="0 9 * * *  或  2026-07-18T20:00"></label>
+      <label>Session <input id="dwSession" placeholder="cron_health"></label>
+      <label>模式
+        <select id="dwMode"><option value="auto">auto（會自動跑工具）</option><option value="chat">chat（只回話）</option></select>
+      </label>
+      <label>Prompt <textarea id="dwPrompt" rows="3"></textarea></label>
+      <div class="dw-warn" id="dwWarn">⚠ auto 模式會在無人看守時自動執行工具。</div>
+      <div class="dw-actions"><button id="dwCancel">取消</button><button class="send" id="dwSave">儲存</button></div>
+    </div>
+  </div>
+  <div class="drawer" id="histDrawer" style="display:none">
+    <div class="dw-card"><h3>執行歷史</h3><div id="histBody"></div>
+      <div class="dw-actions"><button id="histClose">關閉</button></div></div>
+  </div>
+
 <script>
 /* ---------------- helpers ---------------- */
 const $=s=>document.querySelector(s);
@@ -787,36 +818,5 @@ loadHealth();newChat();
 setInterval(loadHealth,20000);
 loadSchedules(); setInterval(loadSchedules, 30000);              // refresh alongside health
 </script>
-
-<div class="drawer" id="schedDrawer" style="display:none">
-  <div class="dw-card">
-    <h3 id="dwTitle">新排程</h3>
-    <input type="hidden" id="dwId">
-    <label>名稱 <input id="dwName"></label>
-    <label>類型
-      <select id="dwKind"><option value="cron">週期 (cron)</option><option value="at">一次性 (at)</option></select>
-    </label>
-    <label>預設
-      <select id="dwPreset">
-        <option value="">— 自訂 —</option>
-        <option value="0 * * * *">每小時</option>
-        <option value="0 9 * * *">每日 09:00</option>
-        <option value="0 9 * * 1">每週一 09:00</option>
-      </select>
-    </label>
-    <label id="dwCronWrap">cron / 時間 <input id="dwExpr" placeholder="0 9 * * *  或  2026-07-18T20:00"></label>
-    <label>Session <input id="dwSession" placeholder="cron_health"></label>
-    <label>模式
-      <select id="dwMode"><option value="auto">auto（會自動跑工具）</option><option value="chat">chat（只回話）</option></select>
-    </label>
-    <label>Prompt <textarea id="dwPrompt" rows="3"></textarea></label>
-    <div class="dw-warn" id="dwWarn">⚠ auto 模式會在無人看守時自動執行工具。</div>
-    <div class="dw-actions"><button id="dwCancel">取消</button><button class="send" id="dwSave">儲存</button></div>
-  </div>
-</div>
-<div class="drawer" id="histDrawer" style="display:none">
-  <div class="dw-card"><h3>執行歷史</h3><div id="histBody"></div>
-    <div class="dw-actions"><button id="histClose">關閉</button></div></div>
-</div>
 </body>
 </html>
