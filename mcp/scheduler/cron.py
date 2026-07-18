@@ -5,7 +5,7 @@ which is simple and correct for a minute-resolution scheduler.
 """
 from datetime import datetime, timedelta
 
-_RANGES = [(0, 59), (0, 23), (1, 31), (1, 12), (0, 6)]   # min hour dom month dow (dow: 0=Mon..6=Sun)
+_RANGES = [(0, 59), (0, 23), (1, 31), (1, 12), (0, 7)]   # min hour dom month dow (dow input is standard cron 0=Sun..6=Sat, plus 7=Sun alias; converted to Python weekday Mon=0..Sun=6 in _parse_cron)
 _MAX_STEPS = 366 * 24 * 60   # a year of minutes -- guard against an unsatisfiable spec
 
 
@@ -37,14 +37,15 @@ def _parse_cron(expr):
     if len(fields) != 5:
         raise ValueError("cron must have 5 fields, got %d: %r" % (len(fields), expr))
     parsed = [_parse_field(f, lo, hi) for f, (lo, hi) in zip(fields, _RANGES)]
-    # Convert dow from standard cron (Sun=0, Mon=1) to Python (Mon=0, Sun=6)
+    # Convert dow from standard cron (0=Sun..6=Sat, 7=Sun alias) to Python weekday (Mon=0..Sun=6).
+    # (0-1)%7 == 6 and (7-1)%7 == 6, so both 0 and 7 map to Sunday (Python weekday 6).
     parsed[4] = {(i - 1) % 7 for i in parsed[4]}
     return parsed
 
 
 def _matches(sets, dt):
     minute, hour, dom, month, dow = sets
-    # Python weekday(): Mon=0..Sun=6, matching our dow convention.
+    # `dow` here is already the converted set of Python weekday() values (Mon=0..Sun=6).
     return (dt.minute in minute and dt.hour in hour and dt.day in dom
             and dt.month in month and dt.weekday() in dow)
 

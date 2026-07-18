@@ -19,6 +19,11 @@ def test_day_of_week_monday_only():
     now = datetime(2026, 7, 18, 12, 0)   # 2026-07-18 is a Saturday
     assert cron.next_run("cron", "0 9 * * 1", now) == datetime(2026, 7, 20, 9, 0)
 
+def test_dow_7_is_sunday_alias():
+    now = datetime(2026, 7, 18, 10, 0)   # 2026-07-18 is a Saturday
+    assert cron.next_run("cron", "0 9 * * 7", now) == datetime(2026, 7, 19, 9, 0)
+    assert cron.next_run("cron", "0 9 * * 0", now) == datetime(2026, 7, 19, 9, 0)
+
 def test_at_future_returns_datetime_past_returns_none():
     now = datetime(2026, 7, 18, 10, 0)
     assert cron.next_run("at", "2026-07-18T20:00", now) == datetime(2026, 7, 18, 20, 0)
