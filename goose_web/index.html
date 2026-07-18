@@ -254,6 +254,31 @@
     .hero .chip{flex:1 1 calc(50% - 4px);max-width:calc(50% - 4px);padding:10px 11px;font-size:12px;line-height:1.35}
     .hero .chip b{font-size:11px;margin-bottom:2px}
   }
+
+  /* ---------------- schedules ---------------- */
+  .sect-h{font-size:11.5px;font-weight:650;letter-spacing:1.4px;text-transform:uppercase;
+    color:var(--faint);padding:0 8px 9px;display:flex;align-items:center;gap:8px}
+  .badge{background:var(--line,#333);border-radius:8px;padding:0 6px;font-size:11px}
+  .btnGhost{width:100%;margin:2px 0;padding:8px 10px;border-radius:var(--radius-sm);
+    background:none;border:1px solid var(--line2);color:var(--muted);
+    font:inherit;font-size:13px;cursor:pointer;transition:.14s}
+  .btnGhost:hover{border-color:var(--accent);color:var(--txt)}
+  .sched-row{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:var(--radius-sm);
+    cursor:pointer;font-size:13px;color:var(--muted)}
+  .sched-row:hover{background:var(--panel2);color:var(--txt)}
+  .sched-row .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sched-row .nx{color:var(--faint);font-size:11.5px;flex:0 0 auto}
+  .schedView{padding:18px;overflow:auto}
+  .sv-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+  .sv-table{width:100%;border-collapse:collapse;font-size:13px}
+  .sv-table th,.sv-table td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line,#2a2a2a)}
+  .sv-act button{background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px}
+  .drawer{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:50}
+  .dw-card{background:var(--panel,#1b1b1b);padding:20px;border-radius:12px;width:min(460px,92vw);display:flex;flex-direction:column;gap:10px}
+  .dw-card label{display:flex;flex-direction:column;gap:4px;font-size:12px}
+  .dw-warn{color:#e0a341;font-size:12px}
+  .dw-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
+  .hist-row{font-size:12px;padding:4px 0;border-bottom:1px solid var(--line,#2a2a2a)}
 </style>
 </head>
 <body>
@@ -282,6 +307,12 @@
         <div class="lbl">Chats</div>
         <div id="sessions"></div>
       </div>
+
+      <div class="sect" id="schedSect">
+        <div class="sect-h">排程 <span class="badge" id="schedCount">0</span></div>
+        <div id="schedList"></div>
+        <button class="btnGhost" id="btnOpenSched">管理排程 →</button>
+      </div>
     </div>
     <div class="navfoot">
       <span id="footModel">—</span>
@@ -301,6 +332,12 @@
       <span class="pill" id="pillModel">—</span>
     </div>
     <div class="transcript" id="transcript"><div class="wrap" id="wrap"></div></div>
+    <div class="schedView" id="schedView" style="display:none">
+      <div class="sv-head"><h2>排程</h2><button class="send" id="btnNewSched">+ 新排程</button></div>
+      <table class="sv-table"><thead><tr>
+        <th>名稱</th><th>週期</th><th>下次執行</th><th>上次</th><th>啟用</th><th>操作</th>
+      </tr></thead><tbody id="schedRows"></tbody></table>
+    </div>
     <div class="composer" id="composer">
       <div class="chips" id="chips"></div>
       <div class="cbox">
@@ -516,6 +553,84 @@ async function send(){
 }
 function setWorking(on){document.body.classList.toggle("working",on);$("#btnSend").disabled=on;}
 
+/* ---------------- schedules ---------------- */
+let SCHED = [];
+function authHeaders(extra){ const h = extra||{}; if(TOKEN) h["X-Goose-Token"]=TOKEN; return h; }
+
+async function loadSchedules(){
+  try{ const r=await fetch("/api/schedules",{headers:authHeaders()}); const j=await r.json();
+       SCHED = j.ok ? (j.schedules||[]) : []; }
+  catch(e){ SCHED = []; }
+  renderScheduleSidebar(); if($("#schedView").style.display!=="none") renderScheduleView();
+}
+function renderScheduleSidebar(){
+  $("#schedCount").textContent = SCHED.length;
+  const box=$("#schedList"); box.innerHTML="";
+  SCHED.forEach(s=>{ const d=el("div","sched-row");
+    d.innerHTML='<span class="dot '+(s.enabled?"up":"off")+'"></span>'+
+      '<span class="nm">'+esc(s.name)+'</span><span class="nx">'+esc(s.label||"")+'</span>';
+    d.onclick=()=>{ switchView("sched"); }; box.appendChild(d); });
+}
+function fmtStatus(s){ return s==="ok"?"✓ ok":s==="error"?"✗ err":s==="running"?"… run":"—"; }
+function renderScheduleView(){
+  const tb=$("#schedRows"); tb.innerHTML="";
+  SCHED.forEach(s=>{ const tr=el("tr");
+    tr.innerHTML='<td>'+esc(s.name)+'</td><td>'+esc(s.label||"")+'</td>'+
+      '<td>'+esc((s.next_run||"").replace("T"," "))+'</td><td>'+fmtStatus(s.last_status)+'</td>'+
+      '<td><input type="checkbox" '+(s.enabled?"checked":"")+' data-id="'+s.id+'" class="schTgl"></td>'+
+      '<td class="sv-act">'+
+        '<button title="立即執行" data-a="run-now" data-id="'+s.id+'">▶</button>'+
+        '<button title="編輯" data-a="edit" data-id="'+s.id+'">✎</button>'+
+        '<button title="刪除" data-a="del" data-id="'+s.id+'">🗑</button>'+
+        '<button title="歷史" data-a="hist" data-id="'+s.id+'">⧗</button></td>';
+    tb.appendChild(tr); });
+  tb.querySelectorAll(".schTgl").forEach(c=>c.onchange=()=>postSched({action:"toggle",id:c.dataset.id,enabled:c.checked}));
+  tb.querySelectorAll(".sv-act button").forEach(b=>b.onclick=()=>{
+    const id=b.dataset.id, a=b.dataset.a;
+    if(a==="edit") openScheduleDrawer(SCHED.find(x=>x.id===id));
+    else if(a==="hist") openHistory(id);
+    else if(a==="del"){ if(confirm("刪除此排程？")) postSched({action:"delete",id}); }
+    else if(a==="run-now") postSched({action:"run-now",id});
+  });
+}
+async function postSched(body){
+  try{ const r=await fetch("/api/schedules",{method:"POST",headers:authHeaders({"Content-Type":"application/json"}),body:JSON.stringify(body)});
+       const j=await r.json(); if(!r.ok||j.error) alert("排程操作失敗："+(j.error||r.status)); }
+  finally{ await loadSchedules(); }
+}
+function switchView(name){
+  const sched=name==="sched";
+  $("#schedView").style.display=sched?"block":"none";
+  $("#transcript").style.display=sched?"none":"block";
+  $("#composer").style.display=sched?"none":"flex";
+  if(sched) renderScheduleView();
+}
+function openScheduleDrawer(rec){
+  $("#dwTitle").textContent=rec?"編輯排程":"新排程";
+  $("#dwId").value=rec?rec.id:""; $("#dwName").value=rec?rec.name:"";
+  $("#dwKind").value=rec?rec.kind:"cron"; $("#dwExpr").value=rec?rec.expr:"";
+  $("#dwSession").value=rec?rec.session:""; $("#dwMode").value=rec?rec.mode:"auto";
+  $("#dwPrompt").value=rec?rec.prompt:""; $("#dwPreset").value="";
+  $("#dwWarn").style.display=($("#dwMode").value==="auto")?"block":"none";
+  $("#schedDrawer").style.display="flex";
+}
+async function submitSchedule(){
+  const id=$("#dwId").value;
+  const body={ action: id?"update":"create", name:$("#dwName").value.trim(),
+    kind:$("#dwKind").value, expr:$("#dwExpr").value.trim(), session:$("#dwSession").value.trim(),
+    prompt:$("#dwPrompt").value, mode:$("#dwMode").value };
+  if(id){ body.id=id; body.fields={ name:body.name, kind:body.kind, expr:body.expr,
+    session:body.session, prompt:body.prompt, mode:body.mode }; }
+  $("#schedDrawer").style.display="none"; await postSched(body);
+}
+async function openHistory(id){
+  const r=await fetch("/api/schedules",{method:"POST",headers:authHeaders({"Content-Type":"application/json"}),body:JSON.stringify({action:"history",id})});
+  const j=await r.json(); const runs=(j.result&&j.result.runs)||[];
+  $("#histBody").innerHTML = runs.length? runs.map(x=>'<div class="hist-row">'+esc((x.time||"").replace("T"," "))+
+    ' · '+esc(x.status)+' · <code>'+esc(x.log||"")+'</code></div>').join("") : "<div>尚無執行紀錄</div>";
+  $("#histDrawer").style.display="flex";
+}
+
 /* ---------------- health / sidebar ---------------- */
 async function loadHealth(){
   try{const r=await fetch("/api/health");HEALTH=await r.json();}
@@ -659,8 +774,49 @@ $("#modeToggle").addEventListener("click",e=>{
   [...$("#modeToggle").children].forEach(c=>c.classList.toggle("on",c===btn));
 });
 
+$("#btnOpenSched").onclick=()=>switchView("sched");
+$("#btnNewSched").onclick=()=>openScheduleDrawer(null);
+$("#dwCancel").onclick=()=>{$("#schedDrawer").style.display="none";};
+$("#dwSave").onclick=submitSchedule;
+$("#dwMode").onchange=()=>{$("#dwWarn").style.display=($("#dwMode").value==="auto")?"block":"none";};
+$("#dwPreset").onchange=()=>{ if($("#dwPreset").value){ $("#dwKind").value="cron"; $("#dwExpr").value=$("#dwPreset").value; } };
+$("#histClose").onclick=()=>{$("#histDrawer").style.display="none";};
+$("#btnNew").addEventListener("click",()=>switchView("chat"));   // returning to a chat leaves the sched view
+
 loadHealth();newChat();
 setInterval(loadHealth,20000);
+loadSchedules(); setInterval(loadSchedules, 30000);              // refresh alongside health
 </script>
+
+<div class="drawer" id="schedDrawer" style="display:none">
+  <div class="dw-card">
+    <h3 id="dwTitle">新排程</h3>
+    <input type="hidden" id="dwId">
+    <label>名稱 <input id="dwName"></label>
+    <label>類型
+      <select id="dwKind"><option value="cron">週期 (cron)</option><option value="at">一次性 (at)</option></select>
+    </label>
+    <label>預設
+      <select id="dwPreset">
+        <option value="">— 自訂 —</option>
+        <option value="0 * * * *">每小時</option>
+        <option value="0 9 * * *">每日 09:00</option>
+        <option value="0 9 * * 1">每週一 09:00</option>
+      </select>
+    </label>
+    <label id="dwCronWrap">cron / 時間 <input id="dwExpr" placeholder="0 9 * * *  或  2026-07-18T20:00"></label>
+    <label>Session <input id="dwSession" placeholder="cron_health"></label>
+    <label>模式
+      <select id="dwMode"><option value="auto">auto（會自動跑工具）</option><option value="chat">chat（只回話）</option></select>
+    </label>
+    <label>Prompt <textarea id="dwPrompt" rows="3"></textarea></label>
+    <div class="dw-warn" id="dwWarn">⚠ auto 模式會在無人看守時自動執行工具。</div>
+    <div class="dw-actions"><button id="dwCancel">取消</button><button class="send" id="dwSave">儲存</button></div>
+  </div>
+</div>
+<div class="drawer" id="histDrawer" style="display:none">
+  <div class="dw-card"><h3>執行歷史</h3><div id="histBody"></div>
+    <div class="dw-actions"><button id="histClose">關閉</button></div></div>
+</div>
 </body>
 </html>
