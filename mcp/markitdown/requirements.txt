@@ -1,0 +1,2 @@
+markitdown-mcp
+pytest>=8.0
