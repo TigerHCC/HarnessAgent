@@ -125,6 +125,15 @@ Runs **UNELEVATED** (`RunLevel Limited`), reads the requested resource (any user
 `file://`, or a fetched URL), and writes Markdown to the MCP response. Not covered by the suite
 watchdog/batch test. See [`markitdown/README.md`](markitdown/README.md).
 
+### DocStruct MCP (`docstruct/`, 127.0.0.1:8795) — manifest-external, UNELEVATED
+
+`docstruct` provides OCR (RapidOCR) and structured document field extraction via a local vLLM. Tools:
+`doc_to_text` (PDF text layer → RapidOCR fallback), `doc_extract` (schema or template-driven field
+mapping), `docstruct_health` (LLM + OCR probe). It is **manifest-external** — not included in
+`setup_mcp_servers.ps1`'s suite build — so one-time registration is via `mcp/docstruct/register_goose_extension.ps1`.
+Runs **UNELEVATED** (`RunLevel Limited`), reads PDFs from the user's filesystem, and calls the local
+vLLM endpoint for extraction. Not covered by the suite watchdog/batch test. See [`docstruct/README.md`](docstruct/README.md).
+
 ### Obsidian vault MCP (`windows_obsidian/`, 127.0.0.1:8790) — one of three Limited tasks
 
 `obsidian` gives the harness file-level access to an Obsidian vault (read/search/list, wikilink &
