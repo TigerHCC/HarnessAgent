@@ -58,6 +58,11 @@ Most formats work out of the box with no extra binaries.
 
 ## Running
 
+> **Shared-environment side effect**: `markitdown-mcp` pins `mcp~=1.8.0`, so installing it downgrades
+> the SHARED `mcp` package for every server in this Python environment — currently safe because all
+> other modules pin `mcp>=1.2` (their test suites pass under 1.8.1), but re-check compatibility
+> whenever bumping `markitdown-mcp`.
+
 ```powershell
 # one-off, foreground (for testing)
 python run_markitdown_mcp.py
