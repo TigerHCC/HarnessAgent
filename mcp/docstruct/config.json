@@ -1,0 +1,7 @@
+{
+  "llm_base_url": "http://100.88.242.174:8000",
+  "llm_model": "qwen-3.6-chat",
+  "max_tokens": 6000,
+  "ocr_dpi": 150,
+  "llm_timeout_seconds": 300
+}
