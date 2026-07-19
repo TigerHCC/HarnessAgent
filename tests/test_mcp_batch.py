@@ -350,7 +350,7 @@ def canonical_manifest_entries():
             "description": f"Server {index}",
             "health_tool": f"server_{index}_health",
         }
-        for index, port in enumerate(range(8777, 8791), 1)
+        for index, port in enumerate(range(8777, 8794), 1)
     ]
 
 
@@ -365,8 +365,8 @@ def test_load_manifest_reads_and_validates_canonical_entries(tmp_path):
 @pytest.mark.parametrize(
     "mutate,error_text",
     [
-        (lambda entries: entries.clear(), "exactly 14"),
-        (lambda entries: entries.pop(), "exactly 14"),
+        (lambda entries: entries.clear(), "exactly 17"),
+        (lambda entries: entries.pop(), "exactly 17"),
         (lambda entries: entries[1].update(name=entries[0]["name"]), "duplicate name"),
         (lambda entries: entries[1].update(port=entries[0]["port"]), "duplicate port"),
         (lambda entries: entries[1].update(task=entries[0]["task"]), "duplicate task"),

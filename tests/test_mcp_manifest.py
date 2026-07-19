@@ -106,10 +106,10 @@ def find_missing_markdown_links(root):
 
 def test_manifest_has_all_local_servers():
     entries = load_entries()
-    assert len(entries) == 14
-    assert len({e["name"] for e in entries}) == 14
-    assert len({e["task"] for e in entries}) == 14
-    assert {e["port"] for e in entries} == set(range(8777, 8791))
+    assert len(entries) == 17
+    assert len({e["name"] for e in entries}) == 17
+    assert len({e["task"] for e in entries}) == 17
+    assert {e["port"] for e in entries} == set(range(8777, 8794))
 
 
 def test_manifest_entries_match_server_sources():
@@ -174,8 +174,8 @@ def test_watchdog_rejects_truncated_manifest_without_probing():
             text=True,
         )
     assert completed.returncode != 0
-    assert "exactly 14 entries" in completed.stderr
-    assert "8777-8790" in completed.stderr
+    assert "exactly 17 entries" in completed.stderr
+    assert "8777-8793" in completed.stderr
 
 
 def test_watchdog_rejects_invalid_inventory_contract_without_probing():
