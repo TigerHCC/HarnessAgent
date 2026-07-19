@@ -14,6 +14,9 @@ try {
     if ($out -notmatch "(?m)^\s{2}markitdown\s*:") { throw 'markitdown block not added' }
     if ($out -notmatch "uri: http://127\.0\.0\.1:8794/mcp") { throw 'uri wrong or missing' }
     if (-not (Test-Path "$cfgPath.bak-markitdown")) { throw 'backup not created' }
+    # 1b) post-write validation: the resulting config must still parse as YAML (python+yaml assumed present here)
+    & python -c "import sys,yaml; yaml.safe_load(open(sys.argv[1],encoding='utf-8'))" $cfgPath 2>$null
+    if ($LASTEXITCODE -ne 0) { throw 'resulting config.yaml failed to parse as YAML after add' }
     # 2) idempotent: second run adds nothing
     & powershell -NoProfile -File $script -ConfigPath $cfgPath | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "expected exit 0 on already-present, got $LASTEXITCODE" }

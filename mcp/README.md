@@ -121,8 +121,9 @@ its own schedule store and run logs, so it runs **UNELEVATED** (`RunLevel Limite
 `markitdown` wraps the official Microsoft `markitdown-mcp` package to convert documents (PDF, Office,
 images, audio, HTML, CSV, ZIP, YouTube, EPub) to Markdown. It is **manifest-external** — not included in
 `setup_mcp_servers.ps1`'s suite build — so one-time registration is via `mcp/markitdown/register_goose_extension.ps1`.
-Runs **UNELEVATED** (`RunLevel Limited`), reads only the input document bytes, and writes Markdown to the
-MCP response. Not covered by the suite watchdog/batch test. See [`markitdown/README.md`](markitdown/README.md).
+Runs **UNELEVATED** (`RunLevel Limited`), reads the requested resource (any user-readable file via
+`file://`, or a fetched URL), and writes Markdown to the MCP response. Not covered by the suite
+watchdog/batch test. See [`markitdown/README.md`](markitdown/README.md).
 
 ### Obsidian vault MCP (`windows_obsidian/`, 127.0.0.1:8790) — one of three Limited tasks
 

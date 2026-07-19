@@ -5,12 +5,8 @@ A local, **UNELEVATED** MCP server that converts documents and web/data resource
 
 This is the **OFFICIAL Microsoft `markitdown-mcp` package** (PyPI: [`markitdown-mcp`](https://pypi.org/project/markitdown-mcp/)),
 run unmodified via a thin launch shim. It is mounted **manifest-external** -- the 18th MCP service in
-this repo, outside the canonical 17-server manifest (ports 8777-8793) -- because it exposes no
-`health_tool`. The shared watchdog (`tools/mcp_watchdog`) and this repo's MCP batch-test harness both
-key off a per-server health tool to confirm liveness; `markitdown-mcp` has exactly one tool
-(`convert_to_markdown`) and no health probe, so it cannot participate in either. In practice this means
-the server restarts only at next logon (via its own Scheduled Task, not the watchdog) -- if it crashes
-mid-session, nothing auto-restarts it until you log on again or start it manually.
+this repo, outside the canonical 17-server manifest (ports 8777-8793) -- see "Why manifest-external"
+below for the full reason (no health tool -> no watchdog/batch coverage -> restarts only at logon).
 
 ## Tool
 

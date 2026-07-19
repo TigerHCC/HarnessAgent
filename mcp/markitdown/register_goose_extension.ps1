@@ -22,4 +22,20 @@ $block = @"
     description: 'Convert documents (PDF, Office, images, audio, HTML, CSV, ZIP, YouTube, EPub) to Markdown via the official Microsoft markitdown-mcp server (manifest-external, 127.0.0.1:8794).'
 "@
 Add-Content -Path $ConfigPath -Value $block -Encoding UTF8
+
+# sanity: does it still parse as YAML? (same net setup_mcp_servers.ps1 uses); roll back on failure
+$py = (Get-Command python -ErrorAction SilentlyContinue).Source
+if ($py) {
+    & $py -c "import yaml" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[!] PyYAML not importable -- skipping post-write YAML validation." -ForegroundColor Yellow
+    } else {
+        & $py -c "import sys,yaml; yaml.safe_load(open(sys.argv[1],encoding='utf-8'))" $ConfigPath 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Copy-Item "$ConfigPath.bak-markitdown" $ConfigPath -Force
+            Write-Host "[X] resulting YAML failed to parse -- restored from backup, no change applied." -ForegroundColor Red
+            exit 1
+        }
+    }
+}
 Write-Host "[OK] Added markitdown extension to $ConfigPath (backup: $ConfigPath.bak-markitdown)" -ForegroundColor Green
