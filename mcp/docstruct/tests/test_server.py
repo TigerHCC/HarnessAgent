@@ -31,3 +31,18 @@ def test_extract_impl_propagates_doc_error(monkeypatch):
     monkeypatch.setattr(srv.doctext, "doc_to_text", lambda path, dpi=150: {"error": "file not found: x"})
     r = srv._extract_impl("x.pdf", "", "cht_bill")
     assert "error" in r
+
+
+def test_health_ok_requires_both_ocr_and_llm(monkeypatch):
+    import urllib.request
+    class FakeResp:
+        status = 200
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=4: FakeResp())
+    h = srv.docstruct_health()
+    assert h["llm_reachable"] is True and h["ok"] is True
+
+    def boom(req, timeout=4):
+        raise OSError("down")
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    h2 = srv.docstruct_health()
+    assert h2["llm_reachable"] is False and h2["ok"] is False

@@ -35,13 +35,13 @@ Config is loaded from `config.json` in this directory, with environment override
 
 | Key | Type | Default | Purpose |
 |---|---|---|---|
-| `llm_base_url` | string | (from config.json) | **Must track goose's `OPENAI_HOST`**. e.g., `"http://127.0.0.1:8000/v1"`. This is the vLLM endpoint used for field extraction. |
-| `llm_model` | string | (from config.json) | Model name passed to the vLLM endpoint (e.g., `"qwen2.5-32b-instruct"`). |
-| `max_tokens` | int | 6000 | Maximum token count for vLLM extraction responses. Reasoning models (e.g., QwQ) may hit this limit on complex documents. Increase if truncation errors occur. |
+| `llm_base_url` | string | (from config.json) | **Must track goose's `OPENAI_HOST`**. e.g., `"http://100.88.242.174:8000"`. This is the vLLM endpoint used for field extraction. |
+| `llm_model` | string | (from config.json) | Model name passed to the vLLM endpoint (e.g., `"qwen-3.6-chat"`). |
+| `max_tokens` | int | 6000 | Maximum token count for vLLM extraction responses. See note below. |
 | `ocr_dpi` | int | 150 | DPI for RapidOCR rendering. Higher = slower + larger memory, better OCR on low-res scans. |
 | `llm_timeout_seconds` | int | 300 | Timeout for vLLM requests (seconds). Long documents + reasoning models may need more. |
 
-**Note on `max_tokens` with reasoning models**: If using a reasoning model (e.g., QwQ) for extraction,
+**Note on `max_tokens` with reasoning models**: If using a reasoning model (e.g., qwen-3.6-chat) for extraction,
 watch for truncation in the LLM response. The error message names `max_tokens` explicitly. Increase
 `DOCSTRUCT_MCP_MAX_TOKENS` if truncation is observed.
 
@@ -76,7 +76,7 @@ watch for truncation in the LLM response. The error message names `max_tokens` e
   same as every other server in this repo.
 - `doc_to_text(path)` reads **any PDF file the logged-on user can read** -- there is no path allowlist
   or sandbox. Input is limited to local filesystem paths; no HTTP/HTTPS URIs.
-- Egress is **only to the configured local vLLM endpoint** (typically `127.0.0.1:8000/v1` or similar),
+- Egress is **only to the configured local vLLM endpoint** (typically `127.0.0.1:8000` or similar),
   not arbitrary endpoints.
 - This is **not** a new capability grant: any developer machine already running the Goose desktop
   extension has an unrestricted local shell, which can already read any user-readable file and invoke

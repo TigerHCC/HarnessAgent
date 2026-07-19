@@ -68,7 +68,7 @@ def docstruct_health() -> dict:
         llm_ok = urllib.request.urlopen(req, timeout=4).status == 200
     except Exception:
         pass
-    return {"ok": ocr_ok, "ocr_available": ocr_ok, "ocr_error": ocr_err,
+    return {"ok": ocr_ok and llm_ok, "ocr_available": ocr_ok, "ocr_error": ocr_err,
             "llm_base_url": _CFG["llm_base_url"], "llm_model": _CFG["llm_model"],
             "llm_reachable": llm_ok, "templates": sorted(llm.TEMPLATES),
             "max_tokens": _CFG["max_tokens"]}
