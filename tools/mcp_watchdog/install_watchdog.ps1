@@ -11,11 +11,18 @@ $script = Join-Path $here "mcp_watchdog.ps1"
 $action = New-ScheduledTaskAction -Execute "powershell.exe" `
   -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`"" -WorkingDirectory $here
 
-# Repeat every 5 minutes, indefinitely, starting at logon. (The AtLogOn trigger carries a repetition
-# block copied from a -Once trigger -- the standard cmdlet pattern for "every N minutes forever".)
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date) `
+# Repeat every 5 minutes, indefinitely. TWO triggers:
+#   1. AtLogOn + repetition -- cadence from every logon.
+#   2. Once (now) + repetition -- cadence starts immediately after (re)install, and survives the
+#      sleep/wake edge where an AtLogOn repetition silently stops ticking until the next logon
+#      (observed 2026-07-16: repetition died mid-day and the watchdog never ran again).
+$rep = (New-ScheduledTaskTrigger -Once -At (Get-Date) `
   -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)).Repetition
+$trigLogon = New-ScheduledTaskTrigger -AtLogOn
+$trigLogon.Repetition = $rep
+$trigNow = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
+  -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
+$trigger = @($trigLogon, $trigNow)
 
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -RunLevel Highest -LogonType Interactive
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
