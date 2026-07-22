@@ -1,3 +1,14 @@
+> **⚠ 2026-07-23 correction — the run below used a BROKEN harness.** It set `GOOSE_CONFIG` to
+> per-profile snapshots, but the goose CLI **ignores `GOOSE_CONFIG`** and reads the live config, which
+> was `diag` (all 12 diagnostic tools enabled) for every run. So NO run was actually scoped — "sec"
+> could and did call `procinspect`/`srum` (not even in its profile). The real scoping mechanism is
+> `goose run --no-profile --with-streamable-http-extension <uri>` (or the live config's `enabled:false`,
+> which plain `goose run` **does** honor — verified). Under TRUE scoping, sec/Q2 routed to `crash`
+> correctly in 56 s. Re-baseline with real scoping is in `report2` / see the corrected results doc.
+> Treat the numbers below as "same full toolset, different recipe" — a recipe comparison, not a
+> scoping comparison. The 0/4 forensics figure is an artifact of the model over-picking the catch-all
+> tools (`procinspect`/`srum`) that real scoping removes.
+
 # Profile A/B Results — diag (Plan-B merged) vs perf+sec (Plan-A split)
 
 Run 2026-07-23 on the local model (qwen3.6 via the GB10 vLLM). 20 runs = the 10 questions in
