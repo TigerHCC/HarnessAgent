@@ -259,6 +259,8 @@
   .sect-h{font-size:11.5px;font-weight:650;letter-spacing:1.4px;text-transform:uppercase;
     color:var(--faint);padding:0 8px 9px;display:flex;align-items:center;gap:8px}
   .badge{background:var(--line,#333);border-radius:8px;padding:0 6px;font-size:11px}
+  .prof-select{width:100%;background:var(--panel,#1b1b1b);color:inherit;border:1px solid var(--line,#2a2a2a);border-radius:8px;padding:6px 8px;font-size:13px}
+  .prof-desc{font-size:11px;opacity:.75;margin-top:4px;line-height:1.5}
   .btnGhost{width:100%;margin:2px 0;padding:8px 10px;border-radius:var(--radius-sm);
     background:none;border:1px solid var(--line2);color:var(--muted);
     font:inherit;font-size:13px;cursor:pointer;transition:.14s}
@@ -292,6 +294,12 @@
     </div>
     <div class="navscroll">
       <button class="btnNew" id="btnNew"><span class="plus">+</span> New chat</button>
+
+      <div class="sect" id="profSect">
+        <div class="sect-h">角色 <span class="badge" id="profBadge">—</span></div>
+        <select id="profSelect" class="prof-select"></select>
+        <div class="prof-desc" id="profDesc"></div>
+      </div>
 
       <div class="sect">
         <div class="lbl">Servers</div>
@@ -471,6 +479,8 @@ function showHero(){
   const h=el("div","hero");
   h.innerHTML='<div class="mark">H</div><h1>How can I help?</h1>'+
     '<p>'+esc(modelLabel())+' on GB10 · agent tools, knowledge base &amp; system telemetry</p><div class="chips" id="heroChips"></div>';
+  const hp=PROF.profiles.find(x=>x.name===PROF.active);
+  if(hp) h.querySelector("p").innerHTML+=' · <b>'+esc(hp.label)+'</b>：'+esc(hp.description);
   wrap.appendChild(h);
   const chips=[
     ["knowledge","Search the knowledge base for SSD wear and NVMe SMART health"],
@@ -629,6 +639,33 @@ async function postSched(body){
        const j=await r.json(); if(!r.ok||j.error) alert("排程操作失敗："+(j.error||r.status)); }
   finally{ await loadSchedules(); }
 }
+
+/* ---------------- profiles ---------------- */
+let PROF={profiles:[],active:""};
+async function loadProfilesUI(){
+  try{const r=await fetch("/api/profiles",{headers:authHeaders()});const j=await r.json();
+      if(j.ok){PROF={profiles:j.profiles||[],active:j.active||""};}}
+  catch(e){}
+  renderProfilesUI();
+}
+function renderProfilesUI(){
+  const sel=$("#profSelect");if(!sel)return;
+  const cur=PROF.active;
+  sel.innerHTML=PROF.profiles.map(p=>'<option value="'+esc(p.name)+'"'+(p.name===cur?" selected":"")+'>'+esc(p.label)+'</option>').join("")+
+    (cur==="custom"?'<option value="custom" selected>自訂</option>':"");
+  const p=PROF.profiles.find(x=>x.name===cur);
+  $("#profBadge").textContent=p?p.enable.length+" MCP":"—";
+  $("#profDesc").textContent=p?p.description:(cur==="custom"?"目前啟用組合不符任何預設":"");
+}
+async function applyProfile(name){
+  if(name==="custom")return;
+  const sel=$("#profSelect");sel.disabled=true;
+  try{const r=await fetch("/api/profiles",{method:"POST",headers:authHeaders({"Content-Type":"application/json"}),
+        body:JSON.stringify({action:"apply",name})});
+      const j=await r.json();if(!r.ok||j.error)alert("套用失敗："+(j.error||r.status));}
+  finally{sel.disabled=false;await loadProfilesUI();await loadHealth();}
+}
+
 function switchView(name){
   const sched=name==="sched";
   $("#schedView").style.display=sched?"block":"none";
@@ -813,9 +850,11 @@ $("#dwMode").onchange=()=>{$("#dwWarn").style.display=($("#dwMode").value==="aut
 $("#dwPreset").onchange=()=>{ if($("#dwPreset").value){ $("#dwKind").value="cron"; $("#dwExpr").value=$("#dwPreset").value; } };
 $("#histClose").onclick=()=>{$("#histDrawer").style.display="none";};
 $("#btnNew").addEventListener("click",()=>switchView("chat"));   // returning to a chat leaves the sched view
+$("#profSelect").onchange=()=>applyProfile($("#profSelect").value);
 
-loadHealth();newChat();
+loadHealth();loadProfilesUI();newChat();
 setInterval(loadHealth,20000);
+setInterval(loadProfilesUI,30000);
 loadSchedules(); setInterval(loadSchedules, 30000);              // refresh alongside health
 </script>
 </body>
