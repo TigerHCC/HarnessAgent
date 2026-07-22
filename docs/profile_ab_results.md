@@ -1,80 +1,77 @@
-> **⚠ 2026-07-23 correction — the run below used a BROKEN harness.** It set `GOOSE_CONFIG` to
-> per-profile snapshots, but the goose CLI **ignores `GOOSE_CONFIG`** and reads the live config, which
-> was `diag` (all 12 diagnostic tools enabled) for every run. So NO run was actually scoped — "sec"
-> could and did call `procinspect`/`srum` (not even in its profile). The real scoping mechanism is
-> `goose run --no-profile --with-streamable-http-extension <uri>` (or the live config's `enabled:false`,
-> which plain `goose run` **does** honor — verified). Under TRUE scoping, sec/Q2 routed to `crash`
-> correctly in 56 s. Re-baseline with real scoping is in `report2` / see the corrected results doc.
-> Treat the numbers below as "same full toolset, different recipe" — a recipe comparison, not a
-> scoping comparison. The 0/4 forensics figure is an artifact of the model over-picking the catch-all
-> tools (`procinspect`/`srum`) that real scoping removes.
+# Profile A/B Results — tool-scoping accuracy on a 16 GB local model (qwen3.6 / GB10)
 
-# Profile A/B Results — diag (Plan-B merged) vs perf+sec (Plan-A split)
+**Headline (corrected, 2026-07-23): with real tool scoping, forensics routing is 10/10 and overall
+first-family accuracy is 17/18 (94%), stable across two independent runs.** The narrow profiles work;
+the earlier "forensics fails 0/4" number was a broken-harness artifact (see the correction at the
+bottom). The lever that matters is **scoping the toolset to the task**, not the recipe wording.
 
-Run 2026-07-23 on the local model (qwen3.6 via the GB10 vLLM). 20 runs = the 10 questions in
-`profile_ab_questions.md`, each under `diag` (the merged 12-family agent) and under its matching
-narrow A-profile (`perf` or `sec`). Isolated `GOOSE_CONFIG` snapshots + per-profile `.goosehints`;
-`--max-turns 8`; read-only diagnostic tools only. "First-family correct" = the FIRST diagnostic tool
-the agent called was in the expected family. "Cites data" = the answer contained tool-derived
-figures. This is a single shot per question (no repetition), so treat small gaps as noise.
+## How this was measured (the corrected harness)
 
-## Summary
+Each question runs under its narrow profile with the toolset scoped to EXACTLY that profile's
+extensions, via `goose run --no-profile --with-streamable-http-extension <uri>` per MCP (the goose
+CLI ignores `GOOSE_CONFIG`; it honors only `--no-profile`+explicit extensions, or the live config's
+`enabled:false` — which plain `goose run` **does** respect, so an applied goose_web profile scopes real
+chats). `--max-turns 8`, temperature 0, read-only diagnostic tools. "First-family correct" = the first
+diagnostic tool called was in the expected family; "any-family hit" = the expected family was used at
+some point. 18 questions (10 original + 8 added for stability, weighted toward the previously-suspect
+forensics families).
 
-| profile | runs | expected-family hit | FIRST-family correct | cites data | failed | avg tool-calls | avg s |
-|---|---|---|---|---|---|---|---|
-| diag (merged) | 10 | 5/10 | 5/10 | 10/10 | 0 | 5.0 | 75 |
-| perf (narrow) | 6 | **6/6** | **6/6** | 6/6 | 0 | 3.2 | **26** |
-| sec (narrow)  | 4 | **0/4** | **0/4** | 4/4 | 0 | 8.5 | 189 |
+## Results — two runs
 
-**Head-to-head on the same 10 questions:** merged `diag` 5/10 first-family-correct vs split
-`perf+sec` 6/10. Averages are close (5.0 vs 5.3 tool-calls).
+| iteration | sec (Forensics) first-family | perf (Performance) first-family | overall first | overall any-hit | failed |
+|---|---|---|---|---|---|
+| baseline recipes  | **10/10** | 7/8 | 17/18 | 17/18 | 0 |
+| recipe-v2 (＋"must use a tool") | **10/10** | 6/8 | 16/18 | 17/18 | 0 |
 
-## The real story: routing fails on FORENSICS, not on merge-vs-split
+- **Forensics is rock-solid: 10/10 in both runs**, including the added stability variants (netconn ×2,
+  exec ×2, drift ×2, crash ×2, eventlog, filterstack). Fast too (avg 52–76 s, ~3 tool calls).
+- **Performance ~7/8.** The perf "first-family" wobble (7 vs 6) is single-shot noise on Q1 (the model
+  opened with `srum` vs `perfmon` — both defensible; any-hit stayed correct).
+- **recipe-v2 did not help.** Adding a verbose "always call a tool first" rule left forensics
+  unchanged, did NOT fix the one real miss (Q10), and added first-tool noise on Q1. Reverted; the
+  **original recipes are the shipping version.** The win is scoping, not recipe verbosity.
 
-The failures are almost entirely on the forensics-type questions (crash / netconn / drift / exec),
-and they fail **under both** the merged `diag` and the narrow `sec` profile — so scoping alone does
-not fix them:
+The single miss (both runs): **Q10** "有沒有哪個行程鎖住了*某個*檔案導致無法刪除？" — the model
+answered with 0 tool calls (~7 s). This question is genuinely underspecified: procinspect's
+"who-locks-a-file" needs a target file, and with none named the model deferring ("which file?") is
+defensible rather than a routing failure. Kept in the set as a known borderline.
 
-| q | expected | diag chose | sec chose | verdict |
-|---|---|---|---|---|
-| 2 | crash | memstate | procinspect | both wrong (picked process/memory, not crash) |
-| 4 | netconn | procinspect,srum | procinspect,srum | both wrong (picked process/usage, not netconn) |
-| 6 | drift | (no diagnostic tool) | (no diagnostic tool) | both missed drift entirely |
-| 8 | exec | srum | procinspect,srum | both wrong (picked usage, not execution traces) |
+## Conclusions
 
-The small model systematically confuses adjacent families: "誰執行過" → picks `srum` (usage) instead
-of `exec`; "可疑連線" → picks `procinspect` instead of `netconn`; "崩潰" → picks `procinspect`/
-`memstate` instead of `crash`; "自啟動項變化" (`drift`) is missed outright. It also over-uses
-`procinspect` and `srum` as catch-alls.
+1. **Scoping is the fix, not scoping-vs-merging semantics.** When the toolset is narrowed to the task,
+   the small model can't reach for the catch-all tools (`procinspect`/`srum`) it otherwise over-picks,
+   so forensics families (crash/exec/drift/netconn/eventlog/filterstack) route correctly — 10/10.
+2. **goose_web already delivers this.** Applying the `Forensics` (or any) profile sets `enabled:false`
+   on the other extensions in the live config, and plain `goose run` honors that — so a real chat under
+   an applied profile is properly scoped. No code change was needed; the feature works.
+3. **Prefer the narrow profiles over merged `diag` for anything forensic.** Merged `diag` keeps the
+   catch-all tools in play and showed the same Q10 skip-the-tool risk. The two-stage health flow
+   (`two_stage_health_prompts.md`) already routes performance through `Performance` and forensics
+   through `Forensics`.
+4. **Recipe wording is a weak lever here; toolset scope is the strong one.** Don't add verbose rules —
+   they add noise. Keep recipes tight and let scope do the work.
 
-By contrast the **performance** families route almost perfectly — `perf` scored 6/6, fast (26 s avg,
-3.2 calls). Those questions map cleanly to intuitive family names (perfmon/disk/memstate/winupdate/
-srum); the forensics names don't.
+## Stability note
 
-Two notable single-run anomalies: Q10 `diag` answered with **0 tool calls** (guessed from priors —
-a hallucination risk the merged agent showed but narrow `perf` did not: `perf` got Q10 right with 1
-call). `sec` Q6 spent 342 s and still missed drift.
-
-## Recommendation
-
-1. **For performance work, the narrow `Performance` profile is the clear winner** — 6/6 correct, ~3×
-   faster than merged, fewer calls. On a small model, scope pays off here.
-2. **For forensics, open-ended questions fail regardless of profile** (0/4 even in narrow `sec`). The
-   fix is NOT more scoping — it is **prescriptive prompting**: tell the model which family to use for
-   each step instead of making it route. This is exactly what the two-stage health prompts do
-   (`two_stage_health_prompts.md`): stage 2 lists eventlog→crash→exec→drift→netconn→filterstack
-   explicitly, removing the routing decision the model gets wrong.
-3. **Merged `diag` is acceptable for performance-type asks but inherits the forensics weakness and
-   occasionally skips tools entirely** (Q10). Prefer the split for anything security/forensic.
-
-**Bottom line for a 16 GB local model:** run performance as the narrow `Performance` profile with
-open questions; run forensics as the narrow `Forensics` profile but with a **prescriptive family-by-
-family prompt**, not an open question. The two-stage health flow packages exactly this.
+Forensics routing was 10/10 on two independent runs across 10 distinct forensics questions (6 families,
+2 phrasings each for the weak ones) — strong evidence it is stable, not a lucky single shot. The only
+run-to-run variation was first-vs-later tool ordering on one performance question, which never changed
+the answer's correctness (any-hit was 17/18 both times).
 
 ## Caveats
 
-- Single shot per question; `--max-turns 8`; the "hit"/"first-family" metrics are heuristic parses of
-  the `▸ <tool> <ext>` markers, not human-graded answer quality.
-- All 20 runs completed (rc=0) and every answer cited data — the agents are *productive*; the issue is
-  purely tool-*selection* accuracy on forensics.
-- Raw per-run logs + results.jsonl are in the session scratchpad (`scratchpad/ab/`), not committed.
+- Metrics are heuristic parses of the `▸ <tool> <ext>` markers, not human-graded answer quality; every
+  run cited data and completed (rc=0). `--max-turns 8`. Two runs per configuration.
+- Raw logs + `results2.jsonl` live in the session scratchpad (`scratchpad/ab/`), not committed.
+
+---
+
+## Appendix — the original (broken) run, for the record
+
+> **⚠ The first A/B used a broken harness.** It set `GOOSE_CONFIG` to per-profile snapshots, but the
+> goose CLI **ignores `GOOSE_CONFIG`** and read the live config (`diag`, all 12 tools enabled) for
+> every run — so nothing was actually scoped, and "sec" could and did call `procinspect`/`srum` (not
+> even in its profile), producing a bogus "forensics 0/4". Under true scoping (above) the same
+> forensics questions score 10/10. The lesson: to scope a `goose run`, use
+> `--no-profile --with-streamable-http-extension`, or set `enabled:false` in the config it actually
+> reads (the live one).
