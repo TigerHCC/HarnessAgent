@@ -174,12 +174,53 @@ returns immediately, so "Run now" doesn't wait for the (possibly minutes-long) g
 run to finish. As with the extension toggle, this is currently implemented in
 `server.ps1` only (`server.py` does not yet expose `/api/schedules`).
 
+## Agent Profiles (`/api/profiles`)
+
+The sidebar shows a **Profile** dropdown (role switcher) listing 6 presets from
+`config/profiles.json` — each profile scopes which MCPs goose **sees** when that
+profile is active (e.g. `perf` shows only performance-related MCPs; `sec` shows
+security-forensic MCPs; `diag` shows all). Profiles are the source of truth for agent
+focus; servers and watchdog are untouched.
+
+- `GET /api/profiles` — returns `{ok, profiles, active}`:
+  - `profiles[]` — array of `{name, label, description, enable[]}` — 6 presets from
+    `config/profiles.json`.
+  - `active` — current profile name (string), or `"custom"` if the live
+    `config.yaml` has been hand-edited or settings don't match any preset.
+- `POST /api/profiles` — `{name}` applies profile: validates against
+  `config/profiles.json`, backs up `config.yaml` to `config.yaml.bak-profiles`, writes
+  the new extension set, refreshes the live goose state, and returns `{ok,
+  active, reapply_hint}`. Token-gated like `/api/chat`.
+  - **Builtin-flip policy:** The profile POST endpoint is the **only path** where the
+    `builtin` (`developer` + `memory`) MCPs can toggle; the per-MCP toggle switch
+    (`POST /api/extensions/toggle`) still rejects builtin with `403` if you try to
+    flip it directly.
+  - If profile apply fails (e.g. unknown name), throws `422 Bad Request` before
+    writing anything; `.goosehints` is NOT reverted on failure (it carries the
+    previous profile signal, not state).
+
+**Sidebar switcher:**
+The **Profile** card displays the active profile's label (e.g. "效能健康" for `perf`)
+and a heroic one-liner from the profile description. Clicking it opens a dropdown list of
+all 6 profiles. Each profile row shows its label + description snippet; click to apply.
+Profiles with an invalid/unknown `enable[]` load as grayed out (no click).
+
+**`.goosehints` generation:**
+After a profile is successfully applied, the server regenerates
+`workspace/.goosehints` with a **header line** `# profile: <name>` (e.g.
+`# profile: perf`), then the full recipe Markdown (e.g. from
+`config/recipes/perf.md`). The file carries a do-not-edit comment warning; reapply the
+profile (click the dropdown, select again) to update `.goosehints` if the recipe
+changes.
+
 ## Endpoints
 - `GET /` — the chat page
 - `GET /api/health` — **live model/provider from goose's `config.yaml`** (`model`, `provider`, `provider_name`) + backend status (`backends[].active` marks goose's current provider) + **live-discovered MCP extensions + tool list** (snapshot cache, version cached at startup)
 - `POST /api/chat` — `{session, message, mode, attachments?}` → streamed NDJSON events
 - `POST /api/upload?session=&name=` — raw file bytes in the body → saved to `workspace/uploads/<session>/`; returns `{ok, name, size}`
-- `POST /api/extensions/toggle` — `{id, enabled}` → flips one MCP's `enabled:` in `config.yaml`
+- `POST /api/extensions/toggle` — `{id, enabled}` → flips one MCP's `enabled:` in `config.yaml` (builtin MCPs refused with `403`)
+- `GET /api/profiles` — list 6 presets + current active profile name
+- `POST /api/profiles` — `{name}` applies a profile: validates, backs up, writes, refreshes (token-gated; builtin MCPs allowed here)
 - `GET /api/schedules` — list schedules from the `scheduler` MCP
 - `POST /api/schedules` — `{action, ...}` → create/update/delete/toggle/run-now/history against the `scheduler` MCP
 

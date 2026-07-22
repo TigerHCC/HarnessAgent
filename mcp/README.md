@@ -14,6 +14,16 @@ or **streamable_http** (Goose connects to an mcp-proxy over HTTP).
 > goose, and the configs set it false — goose uploads no usage telemetry. See the repo
 > `README.md` → "Privacy / telemetry".
 
+## Agent profiles — role-scoped MCP access
+
+`config/profiles.json` defines 6 profiles (e.g. `perf`, `sec`, `dtm`, `docs`, `ops`,
+`diag`), each specifying which MCPs are visible to goose for that profile. Recipes in
+`config/recipes/*.md` provide the system prompt per profile. Profiles **scope what goose
+SEES**, not what the servers do — servers and watchdog are untouched. Apply a profile
+via goose_web's **Profile** dropdown (sidebar); on apply, `config.yaml` extensions are
+rewritten and `.goosehints` is regenerated with a `# profile: <name>` header + the
+recipe. See [`../goose_web/README.md`](../goose_web/README.md) § Agent Profiles.
+
 ## PersonalKnowledge KB — `pk`
 Stateless semantic retrieval over the `pk_*` ChromaDB collections.
 Tools: `search_kb`, `get_document`, `list_sources` (serverInfo `personal-kb`).
