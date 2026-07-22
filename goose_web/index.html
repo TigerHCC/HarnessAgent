@@ -296,7 +296,7 @@
       <button class="btnNew" id="btnNew"><span class="plus">+</span> New chat</button>
 
       <div class="sect" id="profSect">
-        <div class="sect-h">角色 <span class="badge" id="profBadge">—</span></div>
+        <div class="sect-h">Role <span class="badge" id="profBadge">—</span></div>
         <select id="profSelect" class="prof-select"></select>
         <div class="prof-desc" id="profDesc"></div>
       </div>
@@ -652,10 +652,10 @@ function renderProfilesUI(){
   const sel=$("#profSelect");if(!sel)return;
   const cur=PROF.active;
   sel.innerHTML=PROF.profiles.map(p=>'<option value="'+esc(p.name)+'"'+(p.name===cur?" selected":"")+'>'+esc(p.label)+'</option>').join("")+
-    (cur==="custom"?'<option value="custom" selected>自訂</option>':"");
+    (cur==="custom"?'<option value="custom" selected>Custom</option>':"");
   const p=PROF.profiles.find(x=>x.name===cur);
   $("#profBadge").textContent=p?p.enable.length+" MCP":"—";
-  $("#profDesc").textContent=p?p.description:(cur==="custom"?"目前啟用組合不符任何預設":"");
+  $("#profDesc").textContent=p?p.description:(cur==="custom"?"Current enabled set matches no preset":"");
 }
 async function applyProfile(name){
   if(name==="custom")return;
@@ -663,8 +663,8 @@ async function applyProfile(name){
   try{const r=await fetch("/api/profiles",{method:"POST",headers:authHeaders({"Content-Type":"application/json"}),
         body:JSON.stringify({action:"apply",name})});
       const j=await r.json();
-      if(!r.ok||j.error)alert("套用失敗："+(j.error||r.status));
-      else if(j.warnings&&j.warnings.length)alert("角色已套用，但有警告：\n"+j.warnings.join("\n"));}
+      if(!r.ok||j.error)alert("Apply failed: "+(j.error||r.status));
+      else if(j.warnings&&j.warnings.length)alert("Role applied, with warnings:\n"+j.warnings.join("\n"));}
   finally{sel.disabled=false;await loadProfilesUI();await loadHealth();}
 }
 
