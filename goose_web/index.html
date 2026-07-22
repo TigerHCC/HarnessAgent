@@ -493,6 +493,32 @@ function showHero(){
 3.Check if there have been any recent update failures or system crashes.
 4.Determine which directories are experiencing excessive write activity.
 Use the diagnostic tools available to you to investigate, and finally list the suspicious items along with their corresponding processes/drivers.`],
+    ["stage 1 · perf","Performance sweep — writes findings for Stage 2 (switch to the Performance role first)",`Run a full performance health check. Go family by family; for each family, call its health tool first to confirm it is online, then investigate:
+
+1. Live performance (perfmon): CPU, disk latency, memory pressure — any bottleneck?
+2. Disk health (disk): C: drive SMART status, any warnings, recent bulk file changes.
+3. Memory attribution (memstate): is usage normal? any pool-leak signs?
+4. Processes (procinspect): any process hogging resources, hung, or leaking handles?
+5. Updates (winupdate): any failed updates or a pending reboot?
+6. Usage attribution (srum): main sources of recent CPU / network / power use.
+
+Give each item a verdict (OK / Watch / Abnormal) and cite concrete data (numbers, process names, timestamps).
+
+Finally, write the "items needing forensic follow-up" to workspace\\health_stage1.md in this format:
+- Suspicious process: <name/PID> (reason)
+- Abnormal time: <time> (what happened)
+- Connection/source to check: <description>
+If everything is clean, write "No anomalies, no forensic follow-up needed".`],
+    ["stage 2 · sec","Forensics sweep — reads Stage 1, gives the final verdict (switch to the Forensics role first)",`First read workspace\\health_stage1.md to get the follow-up items flagged by Stage 1 (performance). Then run a security-forensics check, digging into those flagged items. Go family by family (health first, then investigate):
+
+1. Event log (eventlog): recent system/app errors, especially around the abnormal times Stage 1 flagged.
+2. Crash analysis (crash): any app crashes / BSODs, cross-referenced with the suspicious processes.
+3. Execution traces (exec): recent execution history of Stage 1's suspicious processes (Prefetch / BAM / UserAssist).
+4. Config drift (drift): any recent changes to autostart entries / services.
+5. Outbound connections (netconn): any suspicious connections and their owning processes, cross-referenced with Stage 1's sources to check.
+6. Filter stack (filterstack): any abnormal AV / VPN driver interference.
+
+Give each item a verdict and cite evidence (timestamp + path + process). Finally, combine Stage 1 + Stage 2 into one complete health conclusion: overall system state, confirmed issues, and recommended remediation steps.`],
   ];
   const cw=$("#heroChips");
   chips.forEach(([tag,label,prompt=label])=>{
