@@ -187,17 +187,20 @@ focus; servers and watchdog are untouched.
     `config/profiles.json`.
   - `active` — current profile name (string), or `"custom"` if the live
     `config.yaml` has been hand-edited or settings don't match any preset.
-- `POST /api/profiles` — `{name}` applies profile: validates against
-  `config/profiles.json`, backs up `config.yaml` to `config.yaml.bak-profiles`, writes
-  the new extension set, refreshes the live goose state, and returns `{ok,
-  active, reapply_hint}`. Token-gated like `/api/chat`.
+- `POST /api/profiles` — `{action: "apply", name}` applies a profile: validates
+  against `config/profiles.json`, backs up `config.yaml` to
+  `config.yaml.bak-profile`, writes the new extension set, refreshes the live goose
+  state, and returns `{ok, name, changed: [ids], warnings: []}` (`changed` lists the
+  extensions actually flipped; `warnings` collects non-fatal skips, e.g. an
+  extension absent from this config or a `.goosehints` write failure). Token-gated
+  like `/api/chat`.
   - **Builtin-flip policy:** The profile POST endpoint is the **only path** where the
     `builtin` (`developer` + `memory`) MCPs can toggle; the per-MCP toggle switch
     (`POST /api/extensions/toggle`) still rejects builtin with `403` if you try to
     flip it directly.
-  - If profile apply fails (e.g. unknown name), throws `422 Bad Request` before
-    writing anything; `.goosehints` is NOT reverted on failure (it carries the
-    previous profile signal, not state).
+  - Errors: an unknown profile name or a malformed request returns HTTP `400` with
+    `{error}` — validated **before any write**, so `config.yaml` is untouched on
+    failure. An unreadable `config/profiles.json` returns `500`.
 
 **Sidebar switcher:**
 The **Profile** card displays the active profile's label (e.g. "效能健康" for `perf`)
