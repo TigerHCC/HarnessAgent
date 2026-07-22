@@ -203,10 +203,11 @@ focus; servers and watchdog are untouched.
     failure. An unreadable `config/profiles.json` returns `500`.
 
 **Sidebar switcher:**
-The **Profile** card displays the active profile's label (e.g. "效能健康" for `perf`)
-and a heroic one-liner from the profile description. Clicking it opens a dropdown list of
-all 6 profiles. Each profile row shows its label + description snippet; click to apply.
-Profiles with an invalid/unknown `enable[]` load as grayed out (no click).
+The **Profile** card is a `<select>` dropdown listing the active and available profile
+labels. A badge shows the active profile's MCP count. Below the dropdown, the active
+profile's full description is displayed. When active is `custom` (live config doesn't
+match any preset), an extra "自訂" option appears. Selecting a profile triggers the
+apply endpoint and refreshes the UI and health status.
 
 **`.goosehints` generation:**
 After a profile is successfully applied, the server regenerates

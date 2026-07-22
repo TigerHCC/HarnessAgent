@@ -662,7 +662,9 @@ async function applyProfile(name){
   const sel=$("#profSelect");sel.disabled=true;
   try{const r=await fetch("/api/profiles",{method:"POST",headers:authHeaders({"Content-Type":"application/json"}),
         body:JSON.stringify({action:"apply",name})});
-      const j=await r.json();if(!r.ok||j.error)alert("套用失敗："+(j.error||r.status));}
+      const j=await r.json();
+      if(!r.ok||j.error)alert("套用失敗："+(j.error||r.status));
+      else if(j.warnings&&j.warnings.length)alert("角色已套用，但有警告：\n"+j.warnings.join("\n"));}
   finally{sel.disabled=false;await loadProfilesUI();await loadHealth();}
 }
 
