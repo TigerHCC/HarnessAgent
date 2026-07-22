@@ -435,7 +435,9 @@ $ToggleFns = ''
 try { $ToggleFns = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $Here 'mcp_toggle.ps1') } catch { Write-Warning "[goose_web] could not load mcp_toggle.ps1: $_" }
 $EncodingFns = ''
 try { $EncodingFns = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $Here 'http_encoding.ps1') } catch { Write-Warning "[goose_web] could not load http_encoding.ps1: $_" }
-$DiscoveryFns = $DiscoveryFns + "`n" + $ToggleFns + "`n" + $EncodingFns
+$ProfilesFns = ''
+try { $ProfilesFns = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $Here 'profiles_helpers.ps1') } catch { Write-Warning "[goose_web] could not load profiles_helpers.ps1: $_" }
+$DiscoveryFns = $DiscoveryFns + "`n" + $ToggleFns + "`n" + $EncodingFns + "`n" + $ProfilesFns
 
 # Seed the snapshot synchronously (cheap config parse) so /api/health is never
 # empty; the daemon below replaces it with real tool counts within seconds.
@@ -538,6 +540,7 @@ $S = @{
     shared = $Shared; reAnsi = $reAnsi; reMascot = $reMascot; reRule = $reRule; reTool = $reTool
     uploadsSubdir = $UploadsSubdir; maxUploadBytes = $MaxUploadBytes; maxUploadMb = $MaxUploadMb
     gooseConfig = $GooseConfigPath; discoveryFns = $DiscoveryFns
+    profilesPath = (Join-Path $Here '..\config\profiles.json'); repoRoot = (Split-Path -Parent $Here)
 }
 
 # ----------------------------------------------------------------------------
@@ -701,6 +704,52 @@ $worker = {
         } finally { [System.Threading.Monitor]::Exit($shared.SyncRoot) }
         [void]$shared.refreshSignal.Set()   # discoverer re-handshakes now, off the request path
         Send-Json $ctx @{ ok = $true; id = $extId; enabled = $enabled }
+    }
+
+    function Handle-Profiles($ctx, $S) {
+        if ($S.token) {
+            $sup = $ctx.Request.Headers['X-Goose-Token']; if (-not $sup) { $sup = Get-QueryValue $ctx.Request.Url.Query 'token' }
+            if ($sup -ne $S.token) { Send-Json $ctx @{ error = 'unauthorized' } 401; return }
+        }
+        try { $profiles = Get-AgentProfiles $S.profilesPath }
+        catch { Send-Json $ctx @{ error = [string]$_ } 500; return }
+
+        if ($ctx.Request.HttpMethod -eq 'GET') {
+            $states = @{}
+            foreach ($e in (Parse-GooseExtensions $S.gooseConfig)) { $states[$e.id] = [bool]$e.enabled }
+            $list = @($profiles | ForEach-Object {
+                @{ name = $_.name; label = $_.label; description = $_.description; enable = @($_.enable) } })
+            Send-Json $ctx @{ ok = $true; profiles = $list; active = (Get-ActiveProfileName $profiles $states) }
+            return
+        }
+        $req = $null; $bt = Read-Utf8Body $ctx
+        try { if ($bt.Trim()) { $req = $bt | ConvertFrom-Json } } catch {}
+        if ($null -eq $req -or $req.action -ne 'apply' -or -not $req.name) {
+            Send-Json $ctx @{ error = 'action "apply" and name required' } 400; return
+        }
+        $result = $null; $err = $null
+        [System.Threading.Monitor]::Enter($S.shared.cfgWriteLock)
+        try { $result = Invoke-ProfileApply $S.profilesPath $S.gooseConfig $S.workspace $S.repoRoot ([string]$req.name) }
+        catch { $err = [string]$_ }
+        finally { [System.Threading.Monitor]::Exit($S.shared.cfgWriteLock) }
+        if ($err) { Send-Json $ctx @{ error = $err } 400; return }
+        # update the sidebar snapshot in place (parity with Handle-Toggle) then wake the discoverer
+        $shared = $S.shared
+        $enable = @{}
+        $prof = $profiles | Where-Object { $_.name -eq $req.name } | Select-Object -First 1
+        foreach ($i in $prof.enable) { $enable[[string]$i] = $true }
+        [System.Threading.Monitor]::Enter($shared.SyncRoot)
+        try {
+            foreach ($x in $shared.exts) {
+                if ($result.changed -notcontains $x.id) { continue }
+                $x.enabled = $enable.ContainsKey($x.id)
+                $x.count = 0
+                $x.status = if ($x.enabled) { 'checking' } else { 'disabled' }
+            }
+            $shared.tools = @($shared.tools | Where-Object { $result.changed -notcontains $_.group })
+        } finally { [System.Threading.Monitor]::Exit($shared.SyncRoot) }
+        [void]$shared.refreshSignal.Set()
+        Send-Json $ctx @{ ok = $true; name = $result.name; changed = @($result.changed); warnings = @($result.warnings) }
     }
 
     function Handle-Schedules($ctx, $S) {
@@ -943,6 +992,7 @@ $worker = {
                 if ($path -eq '/' -or $path -eq '/index.html') { Send-File $ctx $S.indexPath 'text/html; charset=utf-8' }
                 elseif ($path -eq '/api/health') { Send-Json $ctx (Build-Health $S) }
                 elseif ($path -eq '/api/schedules') { Handle-Schedules $ctx $S }
+                elseif ($path -eq '/api/profiles') { Handle-Profiles $ctx $S }
                 else { Send-Json $ctx @{ error = 'not found' } 404 }
             } elseif ($req.HttpMethod -eq 'POST' -and $path -eq '/api/chat') {
                 $streamed = $true; Handle-Chat $ctx $S
@@ -952,6 +1002,8 @@ $worker = {
                 Handle-Toggle $ctx $S
             } elseif ($req.HttpMethod -eq 'POST' -and $path -eq '/api/schedules') {
                 Handle-Schedules $ctx $S
+            } elseif ($req.HttpMethod -eq 'POST' -and $path -eq '/api/profiles') {
+                Handle-Profiles $ctx $S
             } else {
                 Send-Json $ctx @{ error = 'not found' } 404
             }
