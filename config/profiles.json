@@ -1,0 +1,40 @@
+[
+  {
+    "name": "diag", "label": "系統診斷",
+    "description": "全面系統診斷（Plan B）：效能、崩潰、執行痕跡、設定漂移、連線、更新，一個 agent 全包，靠工具家族索引選路。",
+    "enable": ["srum", "eventlog", "crash", "exec", "drift", "netconn", "perfmon", "disk",
+               "procinspect", "memstate", "filterstack", "winupdate", "memory", "developer"],
+    "recipe": "config/recipes/diag.md"
+  },
+  {
+    "name": "perf", "label": "效能健康",
+    "description": "慢/卡/漏水/更新失敗診斷與每日健康巡檢（Plan A 前半）。",
+    "enable": ["srum", "perfmon", "memstate", "disk", "procinspect", "winupdate",
+               "memory", "developer"],
+    "recipe": "config/recipes/perf.md"
+  },
+  {
+    "name": "sec", "label": "安全鑑識",
+    "description": "崩潰分析、執行痕跡、設定漂移、可疑連線追查（Plan A 後半）。",
+    "enable": ["eventlog", "crash", "exec", "drift", "netconn", "filterstack", "developer"],
+    "recipe": "config/recipes/sec.md"
+  },
+  {
+    "name": "dtm", "label": "DTM 工程",
+    "description": "DTP build 下載 → 安裝 → consent → 傳輸驗證全流程（確認閘門保護不變）。",
+    "enable": ["dtm_download", "dtm_deploy", "dtmsdk", "developer"],
+    "recipe": "config/recipes/dtm.md"
+  },
+  {
+    "name": "docs", "label": "文件知識",
+    "description": "文件轉 Markdown、掃描件 OCR 欄位抽取、寫入 Obsidian 筆記庫。",
+    "enable": ["markitdown", "docstruct", "obsidian", "memory", "developer"],
+    "recipe": "config/recipes/docs.md"
+  },
+  {
+    "name": "ops", "label": "總管排程",
+    "description": "建立與管理排程任務、輕量電腦操作、任務分派入口。",
+    "enable": ["scheduler", "computercontroller", "memory", "developer"],
+    "recipe": "config/recipes/ops.md"
+  }
+]
