@@ -5,6 +5,9 @@
 .DESCRIPTION
   Installs Python dependencies, registers (and starts) an elevated logon Scheduled Task for each
   MCP server, and registers each extension into goose's config.yaml. Idempotent -- safe to re-run.
+  Also installs (section 3.7, unless -SkipExtras) the manifest-external services that live outside
+  config\mcp_servers.json: markitdown (8794), docstruct (8795), and the goose_web browser UI as the
+  'GooseWeb' scheduled task -- so this one script sets up the whole stack.
 
   Companion to setup_goose.ps1 (which installs goose itself + the base config). Run THAT first on a
   fresh machine, then this. Requires: an elevated PowerShell (Scheduled Tasks + the servers read
@@ -61,6 +64,7 @@ param(
   [switch]$Uninstall,
   [switch]$SkipSysmon,
   [switch]$SkipWatchdog,
+  [switch]$SkipExtras,
   [string]$ConfigPath = (Join-Path $env:APPDATA "Block\goose\config\config.yaml")
 )
 
@@ -204,9 +208,25 @@ if ($Uninstall) {
   # remove the MCP watchdog too (it only makes sense alongside the servers)
   $wdUninstall = Join-Path $here "tools\mcp_watchdog\uninstall_watchdog.ps1"
   if (Test-Path $wdUninstall) { try { & $wdUninstall | Out-Host } catch {} }
+  # remove the manifest-external services + goose_web (symmetry with section 3.7)
+  if (-not $SkipExtras) {
+    foreach ($t in 'MarkItDown-MCP', 'DocStruct-MCP', 'GooseWeb') {
+      $q = schtasks /query /tn $t /fo csv 2>$null | Select-Object -Skip 1
+      if ($q) {
+        Stop-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue
+        Unregister-ScheduledTask -TaskName $t -Confirm:$false -ErrorAction SilentlyContinue
+        Ok "Unregistered Scheduled Task '$t'."
+      }
+    }
+    if (-not $SkipConfig -and (Test-Path $ConfigPath)) {
+      $lines2 = [System.IO.File]::ReadAllLines($ConfigPath); $rm2 = @()
+      foreach ($nm in 'markitdown', 'docstruct') { $nx = Remove-ExtensionBlock $lines2 $nm; if ($null -ne $nx) { $lines2 = $nx; $rm2 += $nm } }
+      if ($rm2.Count) { [System.IO.File]::WriteAllLines($ConfigPath, $lines2, (New-Object System.Text.UTF8Encoding($false))); Ok ("Removed extra extensions: " + ($rm2 -join ", ")) }
+    }
+  }
   Write-Host ""
   Ok "Uninstall done. Python packages were NOT removed (other things may use them)."
-  Warn "goose_web and Sysmon are separate -- this script did not touch them."
+  Warn "Sysmon is separate -- this script did not touch it (uninstall via tools\sysmon)."
   exit 0
 }
 
@@ -369,6 +389,45 @@ else {
     Info "Installing the MCP watchdog (restarts a wedged MCP every 5 min)..."
     try { & $wdInstall | Out-Host } catch { Warn "watchdog install failed: $_" }
   } else { Warn "tools\mcp_watchdog\install_watchdog.ps1 not found -- skipping watchdog." }
+}
+
+# --- 3.7 Manifest-external services (markitdown 8794, docstruct 8795) + goose_web UI ---------
+# These live OUTSIDE config/mcp_servers.json on purpose: markitdown/docstruct have no health_tool
+# (so the watchdog/batch-test don't manage them) and run on 8794/8795; goose_web is the browser UI,
+# not an MCP. Installing them here makes this script the single install entry point for the whole
+# stack. Each sub-installer is idempotent (safe to re-run). Skip with -SkipExtras.
+if ($SkipExtras) { Warn "Skipping manifest-external services + goose_web (-SkipExtras)." }
+else {
+  $pyx = (Get-Command python -ErrorAction SilentlyContinue).Source
+  foreach ($x in @(
+      @{ name = 'markitdown'; dir = 'mcp\markitdown'; task = 'MarkItDown-MCP' },
+      @{ name = 'docstruct';  dir = 'mcp\docstruct';  task = 'DocStruct-MCP' })) {
+    $xdir = Join-Path $here $x.dir
+    if (-not $SkipDeps -and $pyx) {
+      $req = Join-Path $xdir 'requirements.txt'
+      if (Test-Path $req) { Info "$($x.name): installing deps..."; & $pyx -m pip install -q -r $req 2>&1 | Out-Null }
+    }
+    if (-not $SkipTasks) {
+      $inst = Join-Path $xdir 'install_task.ps1'
+      if (Test-Path $inst) { try { & $inst | Out-Null; Ok "$($x.name): scheduled task '$($x.task)' registered." } catch { Warn "$($x.name) install_task failed: $_" } }
+    }
+    if (-not $SkipConfig) {
+      $reg = Join-Path $xdir 'register_goose_extension.ps1'
+      if (Test-Path $reg) { try { & $reg -ConfigPath $ConfigPath | Out-Null; Ok "$($x.name): extension registered in goose config." } catch { Warn "$($x.name) register failed: $_" } }
+    }
+    if (-not $NoStart -and -not $SkipTasks) { Start-ScheduledTask -TaskName $x.task -ErrorAction SilentlyContinue }
+  }
+  # goose_web browser UI as the 'GooseWeb' scheduled task (RunLevel Highest; binds :8799 all interfaces)
+  if ($SkipTasks) { Warn "goose_web: skipping task registration (-SkipTasks)." }
+  else {
+    $gwInstall = Join-Path $here 'goose_web\install_web_task.ps1'
+    if (Test-Path $gwInstall) {
+      try {
+        & $gwInstall | Out-Null; Ok "goose_web: scheduled task 'GooseWeb' registered."
+        if (-not $NoStart) { Start-ScheduledTask -TaskName GooseWeb -ErrorAction SilentlyContinue }
+      } catch { Warn "goose_web install_web_task failed: $_" }
+    } else { Warn "goose_web\install_web_task.ps1 not found -- skipping goose_web." }
+  }
 }
 
 # --- 4. Health check ---
