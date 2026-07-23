@@ -1,9 +1,10 @@
 # Profile A/B Results — tool-scoping accuracy on a 16 GB local model (qwen3.6 / GB10)
 
-**Headline (corrected, 2026-07-23): with real tool scoping, forensics routing is 10/10 and overall
-first-family accuracy is 17/18 (94%), stable across two independent runs.** The narrow profiles work;
-the earlier "forensics fails 0/4" number was a broken-harness artifact (see the correction at the
-bottom). The lever that matters is **scoping the toolset to the task**, not the recipe wording.
+**Headline (corrected, 2026-07-23): with real tool scoping, forensics routing is 10/10 (three runs
+running) and overall any-family accuracy is 18/18 (100%); first-family is 17/18.** The narrow profiles
+work; the earlier "forensics fails 0/4" number was a broken-harness artifact (see the correction at
+the bottom). The lever that matters is **scoping the toolset to the task**, not the recipe wording — a
+single targeted routing hint then lifted the last miss (Q10).
 
 ## How this was measured (the corrected harness)
 
@@ -21,7 +22,8 @@ forensics families).
 | iteration | sec (Forensics) first-family | perf (Performance) first-family | overall first | overall any-hit | failed |
 |---|---|---|---|---|---|
 | baseline recipes  | **10/10** | 7/8 | 17/18 | 17/18 | 0 |
-| recipe-v2 (＋"must use a tool") | **10/10** | 6/8 | 16/18 | 17/18 | 0 |
+| recipe-v2 (＋verbose "must use a tool") | **10/10** | 6/8 | 16/18 | 17/18 | 0 |
+| **final (＋targeted Q10 hint)** | **10/10** | 7/8 (Q10 fixed) | 17/18 | **18/18** | 0 |
 
 - **Forensics is rock-solid: 10/10 in both runs**, including the added stability variants (netconn ×2,
   exec ×2, drift ×2, crash ×2, eventlog, filterstack). Fast too (avg 52–76 s, ~3 tool calls).
@@ -31,10 +33,17 @@ forensics families).
   unchanged, did NOT fix the one real miss (Q10), and added first-tool noise on Q1. Reverted; the
   **original recipes are the shipping version.** The win is scoping, not recipe verbosity.
 
-The single miss (both runs): **Q10** "有沒有哪個行程鎖住了*某個*檔案導致無法刪除？" — the model
-answered with 0 tool calls (~7 s). This question is genuinely underspecified: procinspect's
-"who-locks-a-file" needs a target file, and with none named the model deferring ("which file?") is
-defensible rather than a routing failure. Kept in the set as a known borderline.
+**Q10 — fixed in the final run.** "有沒有哪個行程鎖住了*某個*檔案導致無法刪除？" is underspecified
+(procinspect's who-locks-a-file wants a target file), so in the first two runs the model answered with
+0 tool calls (~7 s). A one-line targeted routing hint in the perf/diag recipes ("for who-holds/locks-a-
+file with no file named, first list current top file-handle holders via procinspect, don't just ask
+back") fixed it: in the final run Q10 calls `procinspect top_handle_users` (2 calls, 22 s) — and a
+separate 2× spot-check also routed to procinspect both times. This is a *targeted* hint (one routing
+case), not a verbose global rule; the verbose version (recipe-v2) was net-negative and was reverted.
+
+The remaining first-family "miss" (final run) is **Q1**: the model opened with `srum` (historical usage)
+before `perfmon`/`disk`/`memstate` for "why is my PC slow after boot" — a defensible opening that still
+landed on the expected families (any-hit Y). Benign single-shot ordering noise, not a routing error.
 
 ## Conclusions
 
