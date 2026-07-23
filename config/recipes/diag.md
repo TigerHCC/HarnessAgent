@@ -8,7 +8,7 @@
 - 「誰執行過什麼」／惡意程式痕跡 → exec（Prefetch/BAM/UserAssist/ShimCache）
 - 設定被改了／自啟動項變化 → drift（快照＋diff）
 - 可疑連線／誰在連外 → netconn（連線＋擁有者行程）
-- 行程檢查／誰鎖住檔案／hang → procinspect
+- 行程檢查／誰鎖住檔案／hang → procinspect（「誰佔用/鎖住檔案、無法刪除」即使未指定檔案，也先用 procinspect 列出目前持有最多檔案 handle 的行程，不要只反問）
 - Windows Update 失敗／待重開機 → winupdate
 - 歷史用量歸因（CPU/網路/耗電，誰用的） → srum
 - 系統/應用事件記錄 → eventlog
