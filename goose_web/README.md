@@ -290,3 +290,22 @@ Trade-off: the harness then depends on the proxy being up. Default here is stdio
 `/api/health` 3/3 backends up · streaming Q&A · multi-turn resume (`meta.resume=true`)
 · DTM tool call (`tool_start dtm_telemetry_lookup`, KB-grounded answer) · `developer`
 write landing in `workspace/`.
+
+## Running as a Scheduled Task (auto-start, easy restart)
+
+Instead of launching `serve_web.ps1` by hand, register goose_web as a Windows Scheduled Task so it
+starts at logon and is managed like the MCP servers:
+
+    # elevated PowerShell (binding all interfaces on :8799 needs admin)
+    .\install_web_task.ps1                # registers 'GooseWeb' (RunLevel Highest, AtLogOn); stops any manual instance
+    Start-ScheduledTask -TaskName GooseWeb
+
+Restart / stop / remove:
+
+    Stop-ScheduledTask -TaskName GooseWeb; Start-ScheduledTask -TaskName GooseWeb   # restart
+    Stop-ScheduledTask -TaskName GooseWeb                                           # stop
+    .\uninstall_web_task.ps1                                                        # remove the task
+
+Output (banner, request logs, errors) is redirected to `logs/goose_web.log`. The task binds `:8799`
+on all interfaces (LAN / Meshnet), so keep it behind a token (`config.json`) or a scoped firewall
+rule — `GOOSE_MODE=auto` lets a connected client run shell commands via the agent.
