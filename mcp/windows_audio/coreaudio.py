@@ -41,14 +41,17 @@ def list_endpoints():
         p = _pycaw()
     except AudioUnavailable as e:
         return {"available": False, "error": str(e), "endpoints": []}
-    out = []
-    for d in p["AudioUtilities"].GetAllDevices():
-        try:
-            out.append({"name": d.FriendlyName, "id": d.id, "flow": flow_of_id(d.id),
-                        "state": _state_name(getattr(d, "state", None))})
-        except Exception as e:
-            out.append({"name": None, "error": str(e)})
-    return {"available": True, "endpoints": out}
+    try:
+        out = []
+        for d in p["AudioUtilities"].GetAllDevices():
+            try:
+                out.append({"name": d.FriendlyName, "id": d.id, "flow": flow_of_id(d.id),
+                            "state": _state_name(getattr(d, "state", None))})
+            except Exception as e:
+                out.append({"name": None, "error": str(e)})
+        return {"available": True, "endpoints": out}
+    except Exception as e:
+        return {"available": False, "error": "core audio query failed: %s" % e, "endpoints": []}
 
 
 def _role_info(p, enum, flow_val, role_val):
@@ -73,15 +76,18 @@ def default_for_roles():
         p = _pycaw()
     except AudioUnavailable as e:
         return {"available": False, "error": str(e)}
-    enum = p["comtypes"].CoCreateInstance(p["CLSID_MMDeviceEnumerator"], p["IMMDeviceEnumerator"],
-                                          p["comtypes"].CLSCTX_INPROC_SERVER)
-    roles = (("console", p["ERole"].eConsole), ("multimedia", p["ERole"].eMultimedia),
-             ("communications", p["ERole"].eCommunications))
-    res = {"available": True, "render": {}, "capture": {}}
-    for flow_key, flow in (("render", p["EDataFlow"].eRender), ("capture", p["EDataFlow"].eCapture)):
-        for rk, role in roles:
-            res[flow_key][rk] = _role_info(p, enum, flow.value, role.value)
-    return res
+    try:
+        enum = p["comtypes"].CoCreateInstance(p["CLSID_MMDeviceEnumerator"], p["IMMDeviceEnumerator"],
+                                              p["comtypes"].CLSCTX_INPROC_SERVER)
+        roles = (("console", p["ERole"].eConsole), ("multimedia", p["ERole"].eMultimedia),
+                 ("communications", p["ERole"].eCommunications))
+        res = {"available": True, "render": {}, "capture": {}}
+        for flow_key, flow in (("render", p["EDataFlow"].eRender), ("capture", p["EDataFlow"].eCapture)):
+            for rk, role in roles:
+                res[flow_key][rk] = _role_info(p, enum, flow.value, role.value)
+        return res
+    except Exception as e:
+        return {"available": False, "error": "core audio query failed: %s" % e}
 
 
 def list_sessions():
@@ -90,12 +96,16 @@ def list_sessions():
     except AudioUnavailable as e:
         return {"available": False, "error": str(e), "sessions": []}
     out = []
-    for s in p["AudioUtilities"].GetAllSessions():
+    try:
+        sessions = p["AudioUtilities"].GetAllSessions()
+    except Exception as e:
+        return {"available": False, "error": "session enumeration failed: %s" % e, "sessions": []}
+    for s in sessions:
         try:
             name = s.Process.name() if s.Process else "system"
+            out.append({"process": name, "state": int(s.State)})
         except Exception:
-            name = "unknown"
-        out.append({"process": name, "state": int(s.State)})
+            continue   # a session that vanished mid-enumeration -- skip it, don't fail the list
     return {"available": True, "sessions": out}
 
 
