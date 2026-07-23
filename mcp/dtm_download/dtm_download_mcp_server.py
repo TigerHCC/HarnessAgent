@@ -24,22 +24,29 @@ def cfg():
     return _CFG
 
 
-def _download_build_sync(channel, build_id):
+def _download_build_sync(channel, build_id, arch, build_type):
     token = config.get_token()
     try:
-        return artifactory.download_build(cfg(), token, channel=channel or None, build_id=build_id or None)
+        return artifactory.download_build(cfg(), token, channel=channel or None, build_id=build_id or None,
+                                          arch=arch or None, build_type=build_type or None)
     except artifactory.ArtifactoryError as e:
         return {"error": str(e)}
 
 
 @mcp.tool()
-async def dtm_download_build(channel: str = "", build_id: str = "") -> dict:
-    """Download a DTP build from Artifactory: resolves the latest build in `channel` (Daily|Formal) if
-    `build_id` is omitted, downloads + checksum-verifies the installer/sample zips and datatype CSVs,
-    extracts the zips, and returns {download_path, msi_path, build_id, zips, extracted, csv_files}.
-    The Artifactory token comes from the DTM_DOWNLOAD_ARTIFACTORY_TOKEN environment variable -- never
-    pass it as an argument. Pass the returned msi_path to dtm_deploy's dtm_install tool to install it."""
-    return await anyio.to_thread.run_sync(_download_build_sync, channel, build_id, limiter=_LIMITER)
+async def dtm_download_build(channel: str = "", build_id: str = "", arch: str = "", build_type: str = "") -> dict:
+    """Download a DTP build from Artifactory: resolves the latest build in `channel` (Daily|Formal|Test)
+    if `build_id` is omitted -- highest build version number wins -- downloads + checksum-verifies the
+    installer/sample zips matching `arch` ("x64"|"arm64", default: auto-detected architecture of the
+    machine running this MCP server) and `build_type` ("Release"|"Debug", default "Release"), extracts
+    them into fixed-name folders (DTPInstallers, DTPSamples) under the build's download_path, downloads
+    the datatype CSVs, and returns {download_path, msi_path, build_id, arch, build_type, zips, extracted,
+    csv_files}. The Artifactory token comes from the DTM_DOWNLOAD_ARTIFACTORY_TOKEN environment variable
+    -- never pass it as an argument. Pass the returned msi_path to dtm_deploy's dtm_install tool to
+    install it. Example: "install the latest Formal release build for x64" -> channel="Formal",
+    arch="x64" (build_type and build_id left blank)."""
+    return await anyio.to_thread.run_sync(_download_build_sync, channel, build_id, arch, build_type,
+                                          limiter=_LIMITER)
 
 
 @mcp.tool()

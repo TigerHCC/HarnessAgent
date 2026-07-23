@@ -42,7 +42,8 @@ def test_defaults_applied(tmp_path):
     p = _write(tmp_path, {"download_path": "./d", "artifactory_base_url": "https://example", "repo": "r"})
     cfg = config.load(p)
     assert cfg["default_channel"] == "Daily"
-    assert cfg["zip_filter"]
+    assert cfg["default_build_type"] == "Release"
+    assert cfg["zip_components"]
     assert cfg["download_timeout_seconds"] == 600
 
 

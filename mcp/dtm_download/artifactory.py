@@ -6,6 +6,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import platform
 import shutil
 import zipfile
 from datetime import datetime, timezone
@@ -18,6 +19,15 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 BUILD_VERSION_RE = None  # set lazily to avoid importing re at module scope twice
+
+VALID_ARCHES = ("x64", "arm64")
+VALID_BUILD_TYPES = ("Release", "Debug")
+
+
+def detect_local_arch():
+    """Best-effort detection of the architecture of the machine running this MCP server (not the
+    caller). Windows ARM64 reports platform.machine() == 'ARM64'; everything else we treat as x64."""
+    return "arm64" if "arm" in platform.machine().lower() else "x64"
 
 
 class ArtifactoryError(Exception):
@@ -186,23 +196,40 @@ def verify_checksum(base_url, repo_path_file, token, file_path, timeout=15):
     return False, "checksum mismatch for %s (expected %s, got %s)" % (file_path, expected, actual)
 
 
+def _long_path(path):
+    """Prefix an absolute Windows path with \\\\?\\ so extraction is not capped at MAX_PATH (260
+    chars) -- build sample trees routinely nest deep enough to exceed that limit."""
+    if os.name != "nt":
+        return path
+    abs_path = os.path.abspath(path)
+    return abs_path if abs_path.startswith("\\\\?\\") else "\\\\?\\" + abs_path
+
+
 def extract_zip(zip_path, dest_dir):
     if os.path.isdir(dest_dir):
-        shutil.rmtree(dest_dir, ignore_errors=True)
+        shutil.rmtree(_long_path(dest_dir), ignore_errors=True)
     os.makedirs(dest_dir, exist_ok=True)
     with zipfile.ZipFile(zip_path, "r") as zf:
-        zf.extractall(dest_dir)
+        zf.extractall(_long_path(dest_dir))
     file_count = sum(len(files) for _, _, files in os.walk(dest_dir))
     return file_count
 
 
-def download_build(cfg, token, channel=None, build_id=None):
+def download_build(cfg, token, channel=None, build_id=None, arch=None, build_type=None):
     """Full orchestration mirroring Install-DTP.ps1's download section: resolve build, download +
-    checksum-verify the sample/installer zips + CSV tables + optional HTML docs, extract zips, write a
-    build-docs-manifest.json. Returns a summary dict; raises ArtifactoryError on hard failure.
+    checksum-verify the installer/sample zips (one per configured component, matching `arch` +
+    `build_type`) + CSV tables + optional HTML docs, extract zips, write a build-docs-manifest.json.
+    Returns a summary dict; raises ArtifactoryError on hard failure.
     """
     if not token:
         raise ArtifactoryError("No Artifactory token provided (set DTM_DOWNLOAD_ARTIFACTORY_TOKEN).")
+
+    arch = arch or detect_local_arch()
+    if arch not in VALID_ARCHES:
+        raise ArtifactoryError("Invalid arch '%s' (expected one of %s)." % (arch, VALID_ARCHES))
+    build_type = build_type or cfg.get("default_build_type", "Release")
+    if build_type not in VALID_BUILD_TYPES:
+        raise ArtifactoryError("Invalid build_type '%s' (expected one of %s)." % (build_type, VALID_BUILD_TYPES))
 
     base_url = cfg["artifactory_base_url"]
     repo = cfg["repo"]
@@ -216,33 +243,41 @@ def download_build(cfg, token, channel=None, build_id=None):
     repo_path = "%s/DTP/%s/%s" % (repo, channel, build_id)
     download_path = os.path.join(cfg["download_path"], build_id)
     if os.path.isdir(download_path):
-        shutil.rmtree(download_path, ignore_errors=True)
+        shutil.rmtree(_long_path(download_path), ignore_errors=True)
     os.makedirs(download_path, exist_ok=True)
 
     dlog = _DlLog(os.path.join(download_path, "download.log"))
     try:
-        dlog.emit("[dl] build %s (%s) -> %s" % (build_id, channel, download_path))
+        dlog.emit("[dl] build %s (%s, arch=%s, build_type=%s) -> %s" %
+                  (build_id, channel, arch, build_type, download_path))
 
-        zip_names = discover_zip_files(base_url, repo_path, token, cfg.get("zip_filter", []), timeout=timeout)
-        if not zip_names:
-            raise ArtifactoryError("No ZIPs matched filters in build folder '%s'." % repo_path)
-
+        components = cfg.get("zip_components", ["DTPInstallers", "DTPSamples"])
         downloaded_zips, extracted = [], []
-        zip_total = len(zip_names)
-        for i, name in enumerate(zip_names, 1):
+        comp_total = len(components)
+        for i, component in enumerate(components, 1):
+            pattern = "*%s*%s*%s*" % (component, arch, build_type)
+            matches = discover_zip_files(base_url, repo_path, token, [pattern], timeout=timeout)
+            if not matches:
+                raise ArtifactoryError(
+                    "No zip found for component '%s' matching arch=%s, build_type=%s in build '%s'." %
+                    (component, arch, build_type, repo_path))
+            if len(matches) > 1:
+                dlog.emit("[dl] warning: %d zips matched component '%s' (arch=%s, build_type=%s); "
+                          "using '%s'" % (len(matches), component, arch, build_type, sorted(matches)[0]))
+            name = sorted(matches)[0]
+
             out_file = os.path.join(download_path, name)
-            dlog.emit("[dl] (%d/%d) %s ..." % (i, zip_total, name))
+            dlog.emit("[dl] (%d/%d) %s ..." % (i, comp_total, name))
             download_file(base_url, "%s/%s" % (repo_path, name), token, out_file,
                           timeout=dl_timeout, label=name, log=dlog._write)
             ok, detail = verify_checksum(base_url, "%s/%s" % (repo_path, name), token, out_file, timeout=timeout)
             if not ok:
                 raise ArtifactoryError(detail)
             downloaded_zips.append({"name": name, "path": out_file, "checksum": detail})
-            dest_name = os.path.splitext(name)[0]
-            dest_path = os.path.join(download_path, dest_name)
+            dest_path = os.path.join(download_path, component)
             file_count = extract_zip(out_file, dest_path)
-            extracted.append({"name": dest_name, "path": dest_path, "file_count": file_count})
-            dlog.emit("[dl] (%d/%d) %s done (%s, extracted %d files)" % (i, zip_total, name,
+            extracted.append({"name": component, "path": dest_path, "file_count": file_count})
+            dlog.emit("[dl] (%d/%d) %s done (%s, extracted %d files)" % (i, comp_total, name,
                                                                          detail, file_count))
 
         csv_results = []
@@ -277,10 +312,12 @@ def download_build(cfg, token, channel=None, build_id=None):
             with open(os.path.join(download_path, "build-docs-manifest.json"), "w", encoding="utf-8") as f:
                 json.dump(manifest, f, indent=2)
 
-        msi_path = _find_msi(extracted, cfg.get("msi_name", "DTPforCustomer_x64_*.msi"))
+        msi_glob = cfg.get("msi_name", "DTPforCustomer_%s_*.msi" % arch)
+        msi_path = _find_msi(extracted, msi_glob, build_type)
 
         return {
             "channel": channel, "build_id": build_id, "download_path": download_path,
+            "arch": arch, "build_type": build_type,
             "msi_path": msi_path, "zips": downloaded_zips, "extracted": extracted,
             "csv_files": csv_results, "html_files": html_results,
         }
@@ -288,11 +325,12 @@ def download_build(cfg, token, channel=None, build_id=None):
         dlog.close()
 
 
-def _find_msi(extracted, msi_name_glob):
+def _find_msi(extracted, msi_name_glob, build_type="Release"):
+    cfg_dirs = [build_type] + [d for d in ("Release", "Debug") if d != build_type]
     for entry in extracted:
         if not entry["name"].lower().startswith("dtpinstallers"):
             continue
-        for cfg_dir in ("Release", "Debug"):
+        for cfg_dir in cfg_dirs:
             candidate_dir = os.path.join(entry["path"], "DTPInstallers", cfg_dir)
             if not os.path.isdir(candidate_dir):
                 continue

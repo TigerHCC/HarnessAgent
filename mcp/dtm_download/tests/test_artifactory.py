@@ -177,7 +177,7 @@ def test_dllog_writes_both_and_survives_write_failure(tmp_path, capsys):
 
 def test_download_build_writes_download_log(monkeypatch, tmp_path):
     cfg = {"artifactory_base_url": "https://x", "repo": "r", "download_path": str(tmp_path),
-           "zip_filter": ["*"], "csv_files": [], "html_files": [], "default_channel": "Daily"}
+           "zip_components": ["Comp1"], "csv_files": [], "html_files": [], "default_channel": "Daily"}
     monkeypatch.setattr(artifactory, "resolve_latest_build", lambda *a, **k: "B1")
     monkeypatch.setattr(artifactory, "discover_zip_files", lambda *a, **k: ["a.zip"])
 
@@ -189,16 +189,19 @@ def test_download_build_writes_download_log(monkeypatch, tmp_path):
     monkeypatch.setattr(artifactory, "download_file", fake_download)
     monkeypatch.setattr(artifactory, "verify_checksum", lambda *a, **k: (True, "SHA256 verified"))
     monkeypatch.setattr(artifactory, "extract_zip", lambda *a, **k: 3)
-    res = artifactory.download_build(cfg, "tok")
+    res = artifactory.download_build(cfg, "tok", arch="x64", build_type="Release")
     log_text = (tmp_path / "B1" / "download.log").read_text(encoding="utf-8")
     assert "(1/1) a.zip" in log_text              # per-file start line
     assert "done" in log_text                     # completion line
     assert res["build_id"] == "B1"
+    assert res["arch"] == "x64"
+    assert res["build_type"] == "Release"
+    assert res["extracted"][0]["name"] == "Comp1"  # fixed component name, not derived from zip filename
 
 
 def test_download_build_lines_print_exactly_once(monkeypatch, tmp_path, capsys):
     cfg = {"artifactory_base_url": "https://x", "repo": "r", "download_path": str(tmp_path),
-           "zip_filter": ["*"], "csv_files": [], "html_files": [], "default_channel": "Daily"}
+           "zip_components": ["Comp1"], "csv_files": [], "html_files": [], "default_channel": "Daily"}
     monkeypatch.setattr(artifactory, "resolve_latest_build", lambda *a, **k: "B1")
     monkeypatch.setattr(artifactory, "discover_zip_files", lambda *a, **k: ["a.zip"])
     monkeypatch.setattr(artifactory, "_PROGRESS_STEP", 4)
@@ -209,7 +212,7 @@ def test_download_build_lines_print_exactly_once(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(artifactory, "verify_checksum", lambda *a, **k: (True, "SHA256 verified"))
     monkeypatch.setattr(artifactory, "extract_zip", lambda *a, **k: 3)
 
-    artifactory.download_build(cfg, "tok")
+    artifactory.download_build(cfg, "tok", arch="x64", build_type="Release")
     out_lines = capsys.readouterr().out.splitlines()
     log_lines = (tmp_path / "B1" / "download.log").read_text(encoding="utf-8").splitlines()
     # the per-file start line and each chunk-progress line: exactly once on stdout AND in the log
@@ -220,3 +223,34 @@ def test_download_build_lines_print_exactly_once(monkeypatch, tmp_path, capsys):
     for line in set(progress + start):
         assert out_lines.count(line) == 1, line
         assert log_lines.count(line) == 1, line
+
+
+def test_detect_local_arch_x64(monkeypatch):
+    monkeypatch.setattr(artifactory.platform, "machine", lambda: "AMD64")
+    assert artifactory.detect_local_arch() == "x64"
+
+
+def test_detect_local_arch_arm64(monkeypatch):
+    monkeypatch.setattr(artifactory.platform, "machine", lambda: "ARM64")
+    assert artifactory.detect_local_arch() == "arm64"
+
+
+def test_download_build_invalid_arch():
+    cfg = {"artifactory_base_url": "https://x", "repo": "r", "download_path": "d"}
+    with pytest.raises(artifactory.ArtifactoryError):
+        artifactory.download_build(cfg, "tok", arch="ia64")
+
+
+def test_download_build_invalid_build_type():
+    cfg = {"artifactory_base_url": "https://x", "repo": "r", "download_path": "d"}
+    with pytest.raises(artifactory.ArtifactoryError):
+        artifactory.download_build(cfg, "tok", arch="x64", build_type="Nightly")
+
+
+def test_download_build_no_matching_zip(monkeypatch, tmp_path):
+    cfg = {"artifactory_base_url": "https://x", "repo": "r", "download_path": str(tmp_path),
+           "zip_components": ["Comp1"], "csv_files": [], "html_files": [], "default_channel": "Daily"}
+    monkeypatch.setattr(artifactory, "resolve_latest_build", lambda *a, **k: "B1")
+    monkeypatch.setattr(artifactory, "discover_zip_files", lambda *a, **k: [])
+    with pytest.raises(artifactory.ArtifactoryError):
+        artifactory.download_build(cfg, "tok", arch="x64", build_type="Release")

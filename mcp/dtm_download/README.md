@@ -19,14 +19,16 @@ returns into `dtm_deploy`'s `dtm_install` tool. The two servers share no state o
 
 | Tool | What it does |
 |---|---|
-| `dtm_download_build(channel="", build_id="")` | Resolves the latest build in `channel` (`Daily`\|`Formal`, default from config) if `build_id` is omitted, downloads + SHA256-verifies the installer/sample zips and datatype CSVs, extracts the zips, and returns `{download_path, msi_path, build_id, zips, extracted, csv_files}`. |
+| `dtm_download_build(channel="", build_id="", arch="", build_type="")` | Resolves the latest build in `channel` (`Daily`\|`Formal`\|`Test`, default from config) if `build_id` is omitted -- highest build version number wins. Downloads + SHA256-verifies the installer/sample zips matching `arch` (`"x64"`\|`"arm64"`, default: auto-detected architecture of the machine running this MCP server) and `build_type` (`"Release"`\|`"Debug"`, default `"Release"`), extracts them into fixed-name folders (`DTPInstallers`, `DTPSamples`) so re-downloads overwrite in place, downloads the datatype CSVs, and returns `{download_path, msi_path, build_id, arch, build_type, zips, extracted, csv_files}`. Example: "install the latest Formal release build for x64" -> `channel="Formal", arch="x64"` (leave `build_type`/`build_id` blank). |
 | `dtm_list_builds(channel="Daily", limit=10)` | Lists available build folder names under `DTP/<channel>` in Artifactory. |
 | `dtm_download_health()` | Whether the Artifactory token is set (not its value), resolved `download_path` + existence, base URL/repo. |
 
 ## Configuration
 
 `config.json`: `artifactory_base_url`, `repo`, `download_path` (`${repo_root}`-relative by default),
-`default_channel`, `zip_filter`, `csv_files`, `html_files`, timeouts. Every key can be overridden via
+`default_channel`, `default_build_type`, `zip_components` (component name prefixes, e.g.
+`["DTPInstallers", "DTPSamples"]` -- matched against Artifactory zip filenames combined with the
+requested `arch`/`build_type`), `csv_files`, `html_files`, timeouts. Every key can be overridden via
 `DTM_DOWNLOAD_MCP_<KEY>` env vars (see `config.py`).
 
 **Artifactory token**: set the `DTM_DOWNLOAD_ARTIFACTORY_TOKEN` environment variable. It is never read

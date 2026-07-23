@@ -54,7 +54,7 @@ def load(path=None):
             val = os.environ[env_key(key)]
         cfg[key] = int(val)
 
-    cfg.setdefault("zip_filter", ["*DTPInstallers*x64*Release*", "*DTPSamples*x64*Release*"])
+    cfg.setdefault("zip_components", ["DTPInstallers", "DTPSamples"])
     cfg.setdefault("csv_files", [
         "InstrumentationDatatypeTable.csv", "AlertDatatypeTable.csv", "AnalysisDatatypeTable.csv",
     ])
@@ -65,6 +65,7 @@ def load(path=None):
         {"file": "projectsByPackage.html", "label": "Projects by Package"},
     ])
     cfg.setdefault("default_channel", "Daily")
+    cfg.setdefault("default_build_type", "Release")
 
     dp = cfg["download_path"]
     cfg["_resolved"] = {

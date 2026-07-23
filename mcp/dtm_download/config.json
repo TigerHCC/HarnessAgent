@@ -1,9 +1,10 @@
 {
-  "artifactory_base_url": "https://durjpd.artifactory.cec.lab.emc.com/artifactory",
+  "artifactory_base_url": "https://csgjpd.artifactory.cec.delllabs.net/artifactory",
   "repo": "tlm-dflt-gen-prod-local",
   "download_path": "${repo_root}/downloads/dtm",
   "default_channel": "Daily",
-  "zip_filter": ["*DTPInstallers*x64*Release*", "*DTPSamples*x64*Release*"],
+  "default_build_type": "Release",
+  "zip_components": ["DTPInstallers", "DTPSamples"],
   "csv_files": [
     "InstrumentationDatatypeTable.csv",
     "AlertDatatypeTable.csv",
