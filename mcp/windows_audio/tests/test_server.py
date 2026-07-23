@@ -16,10 +16,12 @@ def test_bluetooth_impl_classifies(monkeypatch):
     monkeypatch.setattr(srv.winaudio, "pnp_audio", lambda timeout=30: [
         {"status": "OK", "name": "FIIO BTR15 Hands-Free", "class": "MEDIA"},
         {"status": "OK", "name": "Pixel 6 Pro A2DP SNK", "class": "MEDIA"},
-        {"status": "OK", "name": "Realtek(R) Audio", "class": "MEDIA"}])
+        {"status": "OK", "name": "Realtek(R) Audio", "class": "MEDIA"},
+        {"status": "OK", "name": "MX Master 3 Mouse", "class": "Bluetooth"}])
     r = srv._bluetooth_impl()
     profs = {d["name"]: d["profile"] for d in r["bluetooth"]}
     assert profs["FIIO BTR15 Hands-Free"] == "hfp" and profs["Pixel 6 Pro A2DP SNK"] == "a2dp"
+    assert "MX Master 3 Mouse" not in profs  # class=Bluetooth but no audio marker -> not an audio device
 
 def test_health_impl_degrades(monkeypatch):
     monkeypatch.setattr(srv.coreaudio, "default_for_roles", lambda: {"available": False, "error": "no pycaw"})

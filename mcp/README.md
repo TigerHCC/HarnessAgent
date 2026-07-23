@@ -165,7 +165,7 @@ vault's `.md` files (no traversal/symlink escape); there is no delete and no sil
 logon Scheduled Task per server, and registers each extension into goose's `config.yaml`):
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\..\setup_goose.ps1          # 1. goose itself + base config
-powershell -ExecutionPolicy Bypass -File .\..\setup_mcp_servers.ps1    # 2. all 17 local MCPs (Administrator)
+powershell -ExecutionPolicy Bypass -File .\..\setup_mcp_servers.ps1    # 2. all 18 local MCPs (Administrator)
 ```
 `setup_mcp_servers.ps1` flags: `-SkipDeps` (no `pip install`) · `-SkipTasks` (don't register Scheduled
 Tasks) · `-NoStart` (register but don't launch) · `-SkipConfig` (leave `config.yaml` alone) ·
@@ -201,7 +201,7 @@ Get-Content .\logs\mcp\eventlog.stderr.log -Tail 50 -Wait
 
 ### Test all local MCP servers
 
-Once the servers are running, test all 17 from a normal, **unelevated** PowerShell session:
+Once the servers are running, test all 18 from a normal, **unelevated** PowerShell session:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\..\test_mcp_servers.ps1
 ```
@@ -230,9 +230,9 @@ in [`../docs/windows-diagnostic-mcp-candidates.md`](../docs/windows-diagnostic-m
 Three separate things, often conflated:
 
 1. **The installer needs admin.** `setup_mcp_servers.ps1` (and each `install_task.ps1`) registers a
-   Scheduled Task: 14 use `RunLevel Highest`, while `obsidian`, `dtm_download`, and `scheduler` use
+   Scheduled Task: 15 use `RunLevel Highest`, while `obsidian`, `dtm_download`, and `scheduler` use
    `RunLevel Limited`. Registration requires an elevated shell; this says nothing about runtime.
-2. **Fourteen servers are *started* elevated.** Their tasks trigger at **`-AtLogOn`** (not at boot) as
+2. **Fifteen servers are *started* elevated.** Their tasks trigger at **`-AtLogOn`** (not at boot) as
    **your own account** with `LogonType Interactive` and `RunLevel Highest`, so they come up silently (no
    UAC prompt or visible console) through the hidden PowerShell launcher when you log in. `obsidian`,
    `dtm_download`, and `scheduler` are the scheduled-task exceptions: they retain `RunLevel Limited` and
@@ -266,17 +266,17 @@ failing outright:
 
 #### FAQ
 
-**Q: Goose runs unelevated while 14 MCP tasks are Highest and Obsidian's/dtm_download's/scheduler's tasks are Limited. Can Goose call all of them?**
-Yes. All 17 servers are separate processes reached over loopback HTTP (`streamable_http`), not in-process
-libraries. Goose just sends an HTTP request to `127.0.0.1:87xx`. For the 14 elevated servers, a **TCP
+**Q: Goose runs unelevated while 15 MCP tasks are Highest and Obsidian's/dtm_download's/scheduler's tasks are Limited. Can Goose call all of them?**
+Yes. All 18 servers are separate processes reached over loopback HTTP (`streamable_http`), not in-process
+libraries. Goose just sends an HTTP request to `127.0.0.1:87xx`. For the 15 elevated servers, a **TCP
 socket has no UAC/UIPI boundary** (UIPI restricts window messages, not sockets), so an unelevated client
 can connect normally. Obsidian's, dtm_download's, and scheduler's `RunLevel Limited` tasks also launch them unelevated as the current user.
 The exception is the suite installer's direct immediate start: when setup is elevated, that child inherits
 the elevated setup token until restarted through the Limited task or at the next logon. Keeping scheduled
-elevation confined to the 14 `RunLevel Highest` tasks is the point of this architecture.
+elevation confined to the 15 `RunLevel Highest` tasks is the point of this architecture.
 
 **Q: The Scheduled Tasks launch the servers with admin rights at system boot, right?**
-Mostly wrong. Fourteen tasks run **elevated** (`RunLevel Highest`, and Scheduled Tasks elevate *silently*
+Mostly wrong. Fifteen tasks run **elevated** (`RunLevel Highest`, and Scheduled Tasks elevate *silently*
 — no UAC prompt); `obsidian`'s, `dtm_download`'s, and `scheduler`'s tasks remain `RunLevel Limited` and launch them unelevated. All run as
 **your own user account** (not `SYSTEM`), and the trigger is **`-AtLogOn`, not `-AtStartup`**: they start
 **when you log in**, not when the machine boots. A box that powers on and sits at the login screen is
@@ -293,7 +293,7 @@ would report on SYSTEM's hive instead of yours.
 > treat the full suite as read-only. This loopback API is therefore appropriate only on a trusted,
 > single-user diagnostic box; do not run it on a machine with untrusted local users.
 
-**Turning servers on and off at runtime:** goose_web's sidebar has a per-MCP toggle for all 17 local MCPs
+**Turning servers on and off at runtime:** goose_web's sidebar has a per-MCP toggle for all 18 local MCPs
 (it flips `enabled:` in `config.yaml`, which the next `goose run` re-reads — no restart). See
 [`../goose_web/README.md`](../goose_web/README.md).
 

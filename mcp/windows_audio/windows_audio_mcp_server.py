@@ -48,15 +48,21 @@ def _bluetooth_impl():
     for r in rows:
         nm = r.get("name") or ""
         low = nm.lower()
-        # BT audio endpoints show up as MEDIA/AudioEndpoint with hands-free/a2dp/known BT names
-        if any(k in low for k in ("hands-free", "a2dp", "bluetooth")) or r.get("class") == "Bluetooth":
+        # BT audio endpoints usually show up as MEDIA/AudioEndpoint with hands-free/a2dp names. A raw
+        # class=="Bluetooth" row is the radio-level PnP entry -- it covers non-audio BT peripherals too
+        # (mice, keyboards), so require an audio marker there as well instead of including it outright.
+        if r.get("class") == "Bluetooth":
+            is_audio = any(k in low for k in
+                ("hands-free", "a2dp", "headset", "headphone", "audio", "speaker"))
+        else:
+            is_audio = any(k in low for k in ("hands-free", "a2dp"))
+        if is_audio:
             bt.append({"name": nm, "status": r.get("status"), "profile": winaudio.classify_bt(nm)})
     return {"bluetooth": bt,
             "note": "a2dp = stereo media; hfp = mono call+mic. HFP-only = no media; A2DP-only = no call mic."}
 
 
 def _glitches_impl(trace_seconds):
-    eps = coreaudio.list_endpoints()
     # active endpoints' formats are best-effort; indicators still run without them
     ind = glitch.glitch_indicators(active_formats=[], timeout=_T)
     result = {"indicators": ind}
@@ -127,8 +133,9 @@ async def audio_sessions() -> dict:
 
 @mcp.tool()
 async def audio_glitches(trace_seconds: int = 0) -> dict:
-    """Glitch/stutter diagnosis: risk indicators (sample-rate mismatch, recent audio driver errors)
-    always; if trace_seconds > 0, also runs a short elevated ETW trace (clamped to the configured max)."""
+    """Glitch/stutter diagnosis: risk indicators (recent audio driver errors) always; if trace_seconds > 0,
+    also runs a short elevated ETW trace (clamped to the configured max) that captures a .etl file --
+    open it in WPA (Windows Performance Analyzer) for DPC/glitch analysis; events are not parsed inline."""
     return await anyio.to_thread.run_sync(_glitches_impl, trace_seconds)
 
 
