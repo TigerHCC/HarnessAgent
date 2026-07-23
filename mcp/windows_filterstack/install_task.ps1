@@ -17,7 +17,7 @@ $action = New-McpScheduledTaskAction -PowerShellPath $powershell -LauncherPath $
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -RunLevel Highest -LogonType Interactive
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-Register-ScheduledTask -TaskName "Filterstack-MCP" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
-Write-Host "[OK] Registered scheduled task 'Filterstack-MCP' (elevated, at logon)." -ForegroundColor Green
-Write-Host "     Start now: Start-ScheduledTask -TaskName Filterstack-MCP" -ForegroundColor Cyan
+Register-ScheduledTask -TaskName "mcp-filterstack" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+Write-Host "[OK] Registered scheduled task 'mcp-filterstack' (elevated, at logon)." -ForegroundColor Green
+Write-Host "     Start now: Start-ScheduledTask -TaskName mcp-filterstack" -ForegroundColor Cyan
 Write-Host "     Remove:    .\uninstall_task.ps1" -ForegroundColor Cyan

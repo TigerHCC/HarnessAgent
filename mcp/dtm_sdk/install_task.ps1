@@ -18,7 +18,7 @@ $action = New-McpScheduledTaskAction -PowerShellPath $powershell -LauncherPath $
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -RunLevel Highest -LogonType Interactive
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-Register-ScheduledTask -TaskName "DtmSdk-MCP" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
-Write-Host "[OK] Registered scheduled task 'DtmSdk-MCP' (elevated, at logon)." -ForegroundColor Green
-Write-Host "     Start now: Start-ScheduledTask -TaskName DtmSdk-MCP" -ForegroundColor Cyan
+Register-ScheduledTask -TaskName "mcp-dtmsdk" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+Write-Host "[OK] Registered scheduled task 'mcp-dtmsdk' (elevated, at logon)." -ForegroundColor Green
+Write-Host "     Start now: Start-ScheduledTask -TaskName mcp-dtmsdk" -ForegroundColor Cyan
 Write-Host "     Remove:    .\uninstall_task.ps1" -ForegroundColor Cyan

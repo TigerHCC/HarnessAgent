@@ -27,8 +27,8 @@ Every tool returns a structured `{...}` (errors as `{"error": ...}`), never rais
 ## Run it
 ```powershell
 .\start_exec_mcp.ps1                       # elevated
-# or persist as a logon Scheduled Task 'Exec-MCP':
-.\install_task.ps1 ; Start-ScheduledTask -TaskName Exec-MCP
+# or persist as a logon Scheduled Task 'mcp-exec':
+.\install_task.ps1 ; Start-ScheduledTask -TaskName mcp-exec
 ```
 Serves `http://127.0.0.1:8780/mcp` (streamable HTTP). Pure stdlib parsing — `ctypes` ntdll for the
 Prefetch decompress, `winreg`/`struct` for the rest; `pywin32` only to resolve BAM SIDs → user names.

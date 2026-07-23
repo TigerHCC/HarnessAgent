@@ -26,8 +26,8 @@ Every tool returns a structured `{...}` (errors as `{"error": ...}`), never rais
 ## Run it
 ```powershell
 .\start_netconn_mcp.ps1                        # elevated
-# or persist as a logon Scheduled Task 'Netconn-MCP':
-.\install_task.ps1 ; Start-ScheduledTask -TaskName Netconn-MCP
+# or persist as a logon Scheduled Task 'mcp-netconn':
+.\install_task.ps1 ; Start-ScheduledTask -TaskName mcp-netconn
 ```
 Serves `http://127.0.0.1:8782/mcp`. Uses **psutil** for the socket table + process names and
 `tasklist /svc` for svchost→service resolution (cached ~15 s). Baselines live in `data/`

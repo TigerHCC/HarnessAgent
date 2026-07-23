@@ -28,7 +28,7 @@ Every tool returns a structured `{...}` (errors as `{"error": ...}`), never rais
 ## Run it
 ```powershell
 .\start_procinspect_mcp.ps1                         # elevated recommended
-.\install_task.ps1 ; Start-ScheduledTask -TaskName Procinspect-MCP
+.\install_task.ps1 ; Start-ScheduledTask -TaskName mcp-procinspect
 ```
 Serves `http://127.0.0.1:8785/mcp`. `native.py` uses `ctypes` against rstrtmgr.dll (Restart Manager) +
 advapi32.dll (Wait Chain Traversal); `procdetail.py` uses psutil (+ one `Get-AuthenticodeSignature` call

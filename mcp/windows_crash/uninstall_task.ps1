@@ -1,3 +1,3 @@
-# Removes the Crash-MCP scheduled task. Run as Administrator.
-Unregister-ScheduledTask -TaskName "Crash-MCP" -Confirm:$false -ErrorAction SilentlyContinue
-Write-Host "[OK] Removed scheduled task 'Crash-MCP' (if it existed)." -ForegroundColor Green
+# Removes the mcp-crash scheduled task. Run as Administrator.
+Unregister-ScheduledTask -TaskName "mcp-crash" -Confirm:$false -ErrorAction SilentlyContinue
+Write-Host "[OK] Removed scheduled task 'mcp-crash' (if it existed)." -ForegroundColor Green

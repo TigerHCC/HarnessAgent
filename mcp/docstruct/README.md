@@ -144,6 +144,6 @@ with RapidOCR if available, but gracefully degrade if it's missing.
 ## Post-merge deployment
 
 1. `pip install -r mcp/docstruct/requirements.txt` (pymupdf + rapidocr already installed from the experiments; this formalizes them).
-2. Elevated: `mcp\docstruct\install_task.ps1` → then `Start-ScheduledTask DocStruct-MCP`.
+2. Elevated: `mcp\docstruct\install_task.ps1` → then `Start-ScheduledTask mcp-docstruct`.
 3. `mcp\docstruct\register_goose_extension.ps1`.
 4. Acceptance: 8795 answers 406 (confirms FastMCP is alive); goose_web card appears; `doc_extract` on a test PDF (e.g., `reports/attachments/2024.09.pdf`) with template `cht_bill` extracts fields (e.g., `發票` number, `總金額`).

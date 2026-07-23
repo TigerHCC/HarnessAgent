@@ -25,7 +25,7 @@ python -m pip install -r requirements.txt
 ## Run (ELEVATED for the Security log)
 - On demand: PowerShell **as Administrator** → `.\start_eventlog_mcp.ps1`
 - Persistent (auto-start elevated at logon): as Administrator → `.\install_task.ps1` then
-  `Start-ScheduledTask -TaskName EventLog-MCP`. Remove with `.\uninstall_task.ps1`.
+  `Start-ScheduledTask -TaskName mcp-eventlog`. Remove with `.\uninstall_task.ps1`.
 
 ## Wire into goose
 The `eventlog` extension is in `config/windows_config.yaml`:

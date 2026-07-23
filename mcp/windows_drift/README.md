@@ -26,8 +26,8 @@ at 500 with a `truncated` flag + per-category counts.
 ## Run it
 ```powershell
 .\start_drift_mcp.ps1                        # elevated
-# or persist as a logon Scheduled Task 'Drift-MCP':
-.\install_task.ps1 ; Start-ScheduledTask -TaskName Drift-MCP
+# or persist as a logon Scheduled Task 'mcp-drift':
+.\install_task.ps1 ; Start-ScheduledTask -TaskName mcp-drift
 ```
 Serves `http://127.0.0.1:8781/mcp`. Pure stdlib (`winreg`, `sqlite3`, `xml.etree`). The DB lives at
 `data/drift.db` (gitignored; override with `DRIFT_DB`).

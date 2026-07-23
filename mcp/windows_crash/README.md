@@ -30,8 +30,8 @@ Every tool returns a structured `{...}` (errors as `{"error": ...}`), never rais
 ```powershell
 # Elevated (kernel dumps + some WER folders need admin):
 .\start_crash_mcp.ps1
-# or persist as a logon Scheduled Task 'Crash-MCP':
-.\install_task.ps1 ; Start-ScheduledTask -TaskName Crash-MCP
+# or persist as a logon Scheduled Task 'mcp-crash':
+.\install_task.ps1 ; Start-ScheduledTask -TaskName mcp-crash
 ```
 Serves `http://127.0.0.1:8779/mcp` (streamable HTTP; Goose 1.39 dropped SSE). Pure stdlib parsing —
 no `minidump`/`libesedb`; `cdb.exe` is optional and only enhances `analyze_dump`.

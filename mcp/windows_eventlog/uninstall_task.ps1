@@ -1,3 +1,3 @@
-# Removes the EventLog-MCP scheduled task. Run as Administrator.
-Unregister-ScheduledTask -TaskName "EventLog-MCP" -Confirm:$false -ErrorAction SilentlyContinue
-Write-Host "[OK] Removed scheduled task 'EventLog-MCP' (if it existed)." -ForegroundColor Green
+# Removes the mcp-eventlog scheduled task. Run as Administrator.
+Unregister-ScheduledTask -TaskName "mcp-eventlog" -Confirm:$false -ErrorAction SilentlyContinue
+Write-Host "[OK] Removed scheduled task 'mcp-eventlog' (if it existed)." -ForegroundColor Green

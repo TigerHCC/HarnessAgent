@@ -17,7 +17,7 @@ $action = New-McpScheduledTaskAction -PowerShellPath $powershell -LauncherPath $
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -RunLevel Highest -LogonType Interactive
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-Register-ScheduledTask -TaskName "Perfmon-MCP" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
-Write-Host "[OK] Registered scheduled task 'Perfmon-MCP' (elevated, at logon)." -ForegroundColor Green
-Write-Host "     Start now: Start-ScheduledTask -TaskName Perfmon-MCP" -ForegroundColor Cyan
+Register-ScheduledTask -TaskName "mcp-perfmon" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+Write-Host "[OK] Registered scheduled task 'mcp-perfmon' (elevated, at logon)." -ForegroundColor Green
+Write-Host "     Start now: Start-ScheduledTask -TaskName mcp-perfmon" -ForegroundColor Cyan
 Write-Host "     Remove:    .\uninstall_task.ps1" -ForegroundColor Cyan

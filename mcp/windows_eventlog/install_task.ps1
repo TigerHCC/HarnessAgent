@@ -17,7 +17,7 @@ $action = New-McpScheduledTaskAction -PowerShellPath $powershell -LauncherPath $
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -RunLevel Highest -LogonType Interactive
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-Register-ScheduledTask -TaskName "EventLog-MCP" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
-Write-Host "[OK] Registered scheduled task 'EventLog-MCP' (elevated, at logon)." -ForegroundColor Green
-Write-Host "     Start now: Start-ScheduledTask -TaskName EventLog-MCP" -ForegroundColor Cyan
+Register-ScheduledTask -TaskName "mcp-eventlog" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+Write-Host "[OK] Registered scheduled task 'mcp-eventlog' (elevated, at logon)." -ForegroundColor Green
+Write-Host "     Start now: Start-ScheduledTask -TaskName mcp-eventlog" -ForegroundColor Cyan
 Write-Host "     Remove:    .\uninstall_task.ps1" -ForegroundColor Cyan

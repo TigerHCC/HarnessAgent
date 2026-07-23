@@ -3,7 +3,7 @@
     "name": "srum",
     "directory": "windows_srum",
     "port": 8777,
-    "task": "SRUM-MCP",
+    "task": "mcp-srum",
     "run_level": "Highest",
     "description": "Windows SRUM + live system resource usage (CPU/mem/net/power) via local elevated MCP server (127.0.0.1:8777)",
     "health_tool": "srum_health"
@@ -12,7 +12,7 @@
     "name": "eventlog",
     "directory": "windows_eventlog",
     "port": 8778,
-    "task": "EventLog-MCP",
+    "task": "mcp-eventlog",
     "run_level": "Highest",
     "description": "Windows Event Log (system errors + user behavior) via local elevated MCP server (127.0.0.1:8778)",
     "health_tool": "eventlog_health"
@@ -21,7 +21,7 @@
     "name": "crash",
     "directory": "windows_crash",
     "port": 8779,
-    "task": "Crash-MCP",
+    "task": "mcp-crash",
     "run_level": "Highest",
     "description": "Windows crash/WER analysis (app crashes, hangs, BSOD bugchecks) via local elevated MCP server (127.0.0.1:8779)",
     "health_tool": "crash_health"
@@ -30,7 +30,7 @@
     "name": "exec",
     "directory": "windows_exec",
     "port": 8780,
-    "task": "Exec-MCP",
+    "task": "mcp-exec",
     "run_level": "Highest",
     "description": "Windows execution evidence (Prefetch/BAM/UserAssist/ShimCache + timeline) via local elevated MCP server (127.0.0.1:8780)",
     "health_tool": "exec_health"
@@ -39,7 +39,7 @@
     "name": "drift",
     "directory": "windows_drift",
     "port": 8781,
-    "task": "Drift-MCP",
+    "task": "mcp-drift",
     "run_level": "Highest",
     "description": "Windows config-drift (autoruns/services/programs/tasks snapshots + diff) via local elevated MCP server (127.0.0.1:8781)",
     "health_tool": "drift_health"
@@ -48,7 +48,7 @@
     "name": "netconn",
     "directory": "windows_netconn",
     "port": 8782,
-    "task": "Netconn-MCP",
+    "task": "mcp-netconn",
     "run_level": "Highest",
     "description": "Windows live network connections + owning process/service + baseline diff via local elevated MCP server (127.0.0.1:8782)",
     "health_tool": "netconn_health"
@@ -57,7 +57,7 @@
     "name": "perfmon",
     "directory": "windows_perfmon",
     "port": 8783,
-    "task": "Perfmon-MCP",
+    "task": "mcp-perfmon",
     "run_level": "Highest",
     "description": "Windows real-time performance counters (CPU/disk-latency/memory/pool via PDH) + baselines via local MCP server (127.0.0.1:8783)",
     "health_tool": "perfmon_health"
@@ -66,7 +66,7 @@
     "name": "disk",
     "directory": "windows_disk",
     "port": 8784,
-    "task": "Disk-MCP",
+    "task": "mcp-disk",
     "run_level": "Highest",
     "description": "Windows storage diagnostics (USN file-change journal + SMART health + volume state) via local elevated MCP server (127.0.0.1:8784)",
     "health_tool": "disk_status"
@@ -75,7 +75,7 @@
     "name": "procinspect",
     "directory": "windows_procinspect",
     "port": 8785,
-    "task": "Procinspect-MCP",
+    "task": "mcp-procinspect",
     "run_level": "Highest",
     "description": "Windows process inspection (who-locks-a-file, hang/deadlock wait chains, loaded modules, handle-leak view) via local MCP server (127.0.0.1:8785)",
     "health_tool": "procinspect_health"
@@ -84,7 +84,7 @@
     "name": "memstate",
     "directory": "windows_memstate",
     "port": 8786,
-    "task": "Memstate-MCP",
+    "task": "mcp-memstate",
     "run_level": "Highest",
     "description": "Windows memory attribution (pool tags / physical-memory composition / kernel-pool leak hunt) via local elevated MCP server (127.0.0.1:8786)",
     "health_tool": "memstate_health"
@@ -93,7 +93,7 @@
     "name": "filterstack",
     "directory": "windows_filterstack",
     "port": 8787,
-    "task": "Filterstack-MCP",
+    "task": "mcp-filterstack",
     "run_level": "Highest",
     "description": "Windows filter-stack map (filesystem minifilters + NDIS/Winsock network filters + altitude classification) via local elevated MCP server (127.0.0.1:8787)",
     "health_tool": "filterstack_health"
@@ -102,7 +102,7 @@
     "name": "winupdate",
     "directory": "windows_winupdate",
     "port": 8788,
-    "task": "Winupdate-MCP",
+    "task": "mcp-winupdate",
     "run_level": "Highest",
     "description": "Windows Update history + failure HRESULTs + pending-reboot state via local MCP server (127.0.0.1:8788)",
     "health_tool": "winupdate_health"
@@ -111,7 +111,7 @@
     "name": "dtmsdk",
     "directory": "dtm_sdk",
     "port": 8789,
-    "task": "DtmSdk-MCP",
+    "task": "mcp-dtmsdk",
     "run_level": "Highest",
     "description": "DTM Sample/SDK utilities (DTP client SDK CLI wrappers: instrumentation/analytics/transmission/DTM/platinum) via local elevated MCP server (127.0.0.1:8789). NOT read-only -- can transmit telemetry + change DTP config; gated by per-command confirmation.",
     "health_tool": "dtm_health"
@@ -120,7 +120,7 @@
     "name": "obsidian",
     "directory": "windows_obsidian",
     "port": 8790,
-    "task": "Obsidian-MCP",
+    "task": "mcp-obsidian",
     "run_level": "Limited",
     "description": "Obsidian vault access (read/search/link-graph/tags/frontmatter + gated create/update of markdown notes) via local MCP server (127.0.0.1:8790). Runs UNELEVATED; writes are per-note confirmation-gated.",
     "health_tool": "obsidian_health"
@@ -129,7 +129,7 @@
     "name": "dtm_download",
     "directory": "dtm_download",
     "port": 8791,
-    "task": "DtmDownload-MCP",
+    "task": "mcp-dtm_download",
     "run_level": "Limited",
     "description": "Downloads DTP build artifacts (installer MSI, sample zips, datatype CSVs, doc HTML) from Artifactory via local MCP server (127.0.0.1:8791). Runs UNELEVATED; only writes into its own download_path. Artifactory token via DTM_DOWNLOAD_ARTIFACTORY_TOKEN env var, never a tool argument.",
     "health_tool": "dtm_download_health"
@@ -138,7 +138,7 @@
     "name": "dtm_deploy",
     "directory": "dtm_deploy",
     "port": 8792,
-    "task": "DtmDeploy-MCP",
+    "task": "mcp-dtm_deploy",
     "run_level": "Highest",
     "description": "DTP uninstall/install/consent/plugin/transmission/verify (the elevated half of the Run-DTPSetup.ps1 pipeline) via local elevated MCP server (127.0.0.1:8792). NOT read-only -- uninstall/install/consent/plugin/transmission/run_pipeline are confirmation-gated; verify tools run directly.",
     "health_tool": "dtm_deploy_health"
@@ -147,7 +147,7 @@
     "name": "scheduler",
     "directory": "scheduler",
     "port": 8793,
-    "task": "Scheduler-MCP",
+    "task": "mcp-scheduler",
     "run_level": "Limited",
     "description": "Fires headless `goose run` agent tasks on cron/one-shot schedules via local MCP server (127.0.0.1:8793). Runs UNELEVATED; create/update/delete/pause/resume/run_now are confirm-token gated, list/get/history/health run directly. goose_web controls it over MCP tools/call.",
     "health_tool": "scheduler_health"

@@ -25,7 +25,7 @@ Every tool returns a structured `{...}` (errors as `{"error": ...}`), never rais
 ## Run it
 ```powershell
 .\start_perfmon_mcp.ps1                        # elevated recommended (a few counters need admin)
-.\install_task.ps1 ; Start-ScheduledTask -TaskName Perfmon-MCP
+.\install_task.ps1 ; Start-ScheduledTask -TaskName mcp-perfmon
 ```
 Serves `http://127.0.0.1:8783/mcp`. Pure stdlib — `ctypes` against `pdh.dll` (no pywin32). Baselines in
 `data/` (gitignored; override with `PERFMON_BASELINES`).

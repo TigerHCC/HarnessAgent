@@ -25,7 +25,7 @@ Every tool returns a structured `{...}` (errors as `{"error": ...}`), never rais
 ## Run it
 ```powershell
 .\start_winupdate_mcp.ps1                        # elevation NOT required
-.\install_task.ps1 ; Start-ScheduledTask -TaskName Winupdate-MCP
+.\install_task.ps1 ; Start-ScheduledTask -TaskName mcp-winupdate
 ```
 Serves `http://127.0.0.1:8788/mcp`. Pure stdlib — calls the WUA COM API + `Get-HotFix` through a short
 PowerShell subprocess (avoids COM apartment-threading issues in the FastMCP workers) and reads pending

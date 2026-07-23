@@ -143,13 +143,13 @@ explicitly. Override the default per machine with `DTM_SDK_DEFAULT_CLIENT_ID`.
 
 ## Install / uninstall
 
-Persist it as a logon Scheduled Task (`DtmSdk-MCP`, `RunLevel Highest`, at logon, elevated) — run from an
+Persist it as a logon Scheduled Task (`mcp-dtmsdk`, `RunLevel Highest`, at logon, elevated) — run from an
 elevated shell:
 
 ```powershell
 cd mcp\dtm_sdk
 .\install_task.ps1        # register + describe how to start it
-Start-ScheduledTask -TaskName DtmSdk-MCP
+Start-ScheduledTask -TaskName mcp-dtmsdk
 .\uninstall_task.ps1      # remove the task
 ```
 

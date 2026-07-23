@@ -302,7 +302,7 @@ stdout and stderr rotate independently and only one rotated generation is retain
 cd mcp\windows_srum
 python -m pip install -r requirements.txt
 .\start_srum_mcp.ps1     # foreground, this session only
-.\install_task.ps1       # OR persist: Scheduled Task 'SRUM-MCP' (elevated, at logon)
+.\install_task.ps1       # OR persist: Scheduled Task 'mcp-srum' (elevated, at logon)
 .\uninstall_task.ps1     # remove that one task
 ```
 

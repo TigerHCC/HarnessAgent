@@ -210,7 +210,7 @@ if ($Uninstall) {
   if (Test-Path $wdUninstall) { try { & $wdUninstall | Out-Host } catch {} }
   # remove the manifest-external services + goose_web (symmetry with section 3.7)
   if (-not $SkipExtras) {
-    foreach ($t in 'MarkItDown-MCP', 'DocStruct-MCP', 'GooseWeb') {
+    foreach ($t in 'mcp-markitdown', 'mcp-docstruct', 'GooseWeb') {
       $q = schtasks /query /tn $t /fo csv 2>$null | Select-Object -Skip 1
       if ($q) {
         Stop-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue
@@ -400,8 +400,8 @@ if ($SkipExtras) { Warn "Skipping manifest-external services + goose_web (-SkipE
 else {
   $pyx = (Get-Command python -ErrorAction SilentlyContinue).Source
   foreach ($x in @(
-      @{ name = 'markitdown'; dir = 'mcp\markitdown'; task = 'MarkItDown-MCP' },
-      @{ name = 'docstruct';  dir = 'mcp\docstruct';  task = 'DocStruct-MCP' })) {
+      @{ name = 'markitdown'; dir = 'mcp\markitdown'; task = 'mcp-markitdown' },
+      @{ name = 'docstruct';  dir = 'mcp\docstruct';  task = 'mcp-docstruct' })) {
     $xdir = Join-Path $here $x.dir
     if (-not $SkipDeps -and $pyx) {
       $req = Join-Path $xdir 'requirements.txt'

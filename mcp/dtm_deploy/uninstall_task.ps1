@@ -1,4 +1,4 @@
 # Removes the DTM Deploy MCP scheduled task.
 $ErrorActionPreference = "SilentlyContinue"
-Unregister-ScheduledTask -TaskName "DtmDeploy-MCP" -Confirm:$false
-Write-Host "[OK] Removed scheduled task 'DtmDeploy-MCP' (if it existed)." -ForegroundColor Green
+Unregister-ScheduledTask -TaskName "mcp-dtm_deploy" -Confirm:$false
+Write-Host "[OK] Removed scheduled task 'mcp-dtm_deploy' (if it existed)." -ForegroundColor Green

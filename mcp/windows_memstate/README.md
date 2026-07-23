@@ -23,7 +23,7 @@ Every tool returns a structured `{...}` (errors as `{"error": ...}`), never rais
 ## Run it
 ```powershell
 .\start_memstate_mcp.ps1                        # elevated
-.\install_task.ps1 ; Start-ScheduledTask -TaskName Memstate-MCP
+.\install_task.ps1 ; Start-ScheduledTask -TaskName mcp-memstate
 ```
 Serves `http://127.0.0.1:8786/mcp`. Pure stdlib -- `ctypes` against ntdll `NtQuerySystemInformation`
 (SystemPoolTagInformation 0x16 / SystemMemoryListInformation 0x50) + psapi `GetPerformanceInfo`.

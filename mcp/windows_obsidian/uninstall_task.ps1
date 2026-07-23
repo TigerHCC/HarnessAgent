@@ -1,4 +1,4 @@
 # Removes the Obsidian MCP scheduled task.
 $ErrorActionPreference = "SilentlyContinue"
-Unregister-ScheduledTask -TaskName "Obsidian-MCP" -Confirm:$false
-Write-Host "[OK] Removed scheduled task 'Obsidian-MCP' (if it existed)." -ForegroundColor Green
+Unregister-ScheduledTask -TaskName "mcp-obsidian" -Confirm:$false
+Write-Host "[OK] Removed scheduled task 'mcp-obsidian' (if it existed)." -ForegroundColor Green

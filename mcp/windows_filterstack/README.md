@@ -29,7 +29,7 @@ Every tool returns a structured `{...}` (errors as `{"error": ...}`), never rais
 ## Run it
 ```powershell
 .\start_filterstack_mcp.ps1                        # elevated (fltmc needs admin)
-.\install_task.ps1 ; Start-ScheduledTask -TaskName Filterstack-MCP
+.\install_task.ps1 ; Start-ScheduledTask -TaskName mcp-filterstack
 ```
 Serves `http://127.0.0.1:8787/mcp`. Pure stdlib -- parses `fltmc filters/instances`,
 `Get-NetAdapterBinding`, `netsh winsock show catalog`; resolves each filter's driver via the service

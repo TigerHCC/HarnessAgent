@@ -21,8 +21,8 @@ python -m pip install -r requirements.txt
   ```
 - Persistent (auto-start elevated at logon): run once as Administrator:
   ```powershell
-  .\install_task.ps1      # registers scheduled task 'SRUM-MCP'
-  Start-ScheduledTask -TaskName SRUM-MCP   # start it now
+  .\install_task.ps1      # registers scheduled task 'mcp-srum'
+  Start-ScheduledTask -TaskName mcp-srum   # start it now
   ```
   Remove with `.\uninstall_task.ps1`.
 

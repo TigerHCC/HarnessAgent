@@ -203,14 +203,14 @@ UAC/UIPI boundary, so an unelevated agent talking to it is fine.)
 
 ## Install / uninstall
 
-Persist it as a logon Scheduled Task (`Obsidian-MCP`, **`RunLevel Limited`**, at logon, current user).
+Persist it as a logon Scheduled Task (`mcp-obsidian`, **`RunLevel Limited`**, at logon, current user).
 Registering the task requires an elevated shell (a Windows requirement); the server it runs is
 unelevated:
 
 ```powershell
 cd mcp\windows_obsidian
 .\install_task.ps1                       # register the task (needs an elevated shell to REGISTER)
-Start-ScheduledTask -TaskName Obsidian-MCP
+Start-ScheduledTask -TaskName mcp-obsidian
 .\uninstall_task.ps1                     # remove the task
 ```
 
@@ -222,7 +222,7 @@ powershell -ExecutionPolicy Bypass -File .\..\..\setup_mcp_servers.ps1   # add -
 ```
 
 Without `-NoStart`, that elevated setup process also starts Obsidian immediately, and the child inherits
-its elevated token. Restart Obsidian through `Obsidian-MCP` (or wait for the next logon) to run it under
+its elevated token. Restart Obsidian through `mcp-obsidian` (or wait for the next logon) to run it under
 the task's Limited token.
 
 To run it standalone in the foreground:

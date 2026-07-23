@@ -29,7 +29,7 @@ Every tool returns a structured `{...}` (errors as `{"error": ...}`), never rais
 ## Run it
 ```powershell
 .\start_disk_mcp.ps1                       # elevated
-.\install_task.ps1 ; Start-ScheduledTask -TaskName Disk-MCP
+.\install_task.ps1 ; Start-ScheduledTask -TaskName mcp-disk
 ```
 Serves `http://127.0.0.1:8784/mcp`. Pure stdlib -- `ctypes` DeviceIoControl for the USN journal,
 PowerShell storage cmdlets (`Get-PhysicalDisk` / `Get-StorageReliabilityCounter` / `fsutil`) for health.
