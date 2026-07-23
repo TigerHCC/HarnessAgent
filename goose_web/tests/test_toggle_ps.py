@@ -34,8 +34,11 @@ class PsToggle(unittest.TestCase):
     def test_predicate(self):
         self.assertEqual(self._ps("Test-Togglable @{type='streamable_http';uri='http://127.0.0.1:8777/mcp'}"), "True")
         self.assertEqual(self._ps("Test-Togglable @{type='streamable_http';uri='http://[::1]:8777/mcp'}"), "True")
-        self.assertEqual(self._ps("Test-Togglable @{type='streamable_http';uri='http://192.168.86.44:8765/mcp'}"), "False")
+        self.assertEqual(self._ps("Test-Togglable @{type='streamable_http';uri='http://192.168.86.44:8765/mcp'}"), "True")   # dtm (remote)
+        self.assertEqual(self._ps("Test-Togglable @{type='streamable_http';uri='http://192.168.86.44:8766/mcp'}"), "True")   # pk (remote)
+        self.assertEqual(self._ps("Test-Togglable @{type='streamable_http';uri=''}"), "False")
         self.assertEqual(self._ps("Test-Togglable @{type='builtin'}"), "False")
+        self.assertEqual(self._ps("Test-Togglable @{type='stdio';cmd='x'}"), "False")
 
     def test_flip_only_target_and_idempotent(self):
         d = tempfile.mkdtemp(prefix="gw_ps_")

@@ -155,6 +155,13 @@ extensions:
     name: developer
     enabled: true
     timeout: 300
+  computercontroller:
+    type: builtin
+    bundled: true
+    name: computercontroller
+    enabled: true
+    timeout: 300
+    description: Computer Controller (web scrape / scripts / PDF-DOCX-XLSX) builtin
   memory:
     type: stdio
     bundled: false

@@ -12,13 +12,15 @@ import server  # noqa: E402
 
 
 class Togglable(unittest.TestCase):
-    def test_loopback_streamable_http_is_togglable(self):
+    def test_streamable_http_is_togglable_loopback_and_remote(self):
+        # any streamable_http with a uri is togglable (loopback diagnostics AND remote dtm/pk)
         self.assertTrue(server._is_togglable({"type": "streamable_http", "uri": "http://127.0.0.1:8777/mcp"}))
         self.assertTrue(server._is_togglable({"type": "streamable_http", "uri": "http://localhost:8788/mcp"}))
         self.assertTrue(server._is_togglable({"type": "streamable_http", "uri": "http://[::1]:8777/mcp"}))
+        self.assertTrue(server._is_togglable({"type": "streamable_http", "uri": "http://192.168.86.44:8765/mcp"}))  # dtm (remote)
+        self.assertTrue(server._is_togglable({"type": "streamable_http", "uri": "http://192.168.86.44:8766/mcp"}))  # pk (remote)
 
-    def test_remote_and_builtin_not_togglable(self):
-        self.assertFalse(server._is_togglable({"type": "streamable_http", "uri": "http://192.168.86.44:8765/mcp"}))
+    def test_builtin_stdio_and_empty_uri_not_togglable(self):
         self.assertFalse(server._is_togglable({"type": "builtin"}))
         self.assertFalse(server._is_togglable({"type": "stdio", "cmd": "x"}))
         self.assertFalse(server._is_togglable({"type": "streamable_http", "uri": ""}))

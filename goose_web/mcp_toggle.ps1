@@ -4,20 +4,13 @@
 # _is_togglable / _set_extension_enabled in server.py. Windows PowerShell 5.1 safe.
 
 function Test-Togglable($e) {
-    # True iff a loopback streamable_http MCP (the windows_* diagnostic suite).
+    # True iff a streamable_http MCP with a uri -- loopback (the windows_* diagnostic suite)
+    # OR remote (dtm/pk on the GB10 box). Toggling only flips the config's enabled flag, so
+    # remote MCPs are safe to toggle. builtin and stdio extensions are not togglable this way.
+    # Parity twin of Python's _is_togglable in server.py.
     if ($e.type -ne 'streamable_http') { return $false }
     if (-not $e.uri) { return $false }
-    # Parity with Python's _is_togglable (host in {127.0.0.1, localhost, ::1}).
-    # .NET normalizes IPv6 (Uri.Host gives "[0:0:0:0:0:0:0:1]" for ::1), so a raw
-    # string compare can't match Python's "::1"; compare parsed IPs against the exact
-    # loopback constants instead (127.0.0.1 and ::1 only -- NOT the whole 127/8).
-    try { $h = ([System.Uri]$e.uri).Host.ToLower().Trim('[', ']') } catch { return $false }
-    if ($h -eq 'localhost') { return $true }
-    $addr = $null
-    if ([System.Net.IPAddress]::TryParse($h, [ref]$addr)) {
-        return ($addr.Equals([System.Net.IPAddress]::Loopback) -or $addr.Equals([System.Net.IPAddress]::IPv6Loopback))
-    }
-    return $false
+    return $true
 }
 
 function Set-ExtensionEnabled($configPath, $extId, [bool]$enabled) {

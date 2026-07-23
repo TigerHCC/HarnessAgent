@@ -23,6 +23,22 @@ function Get-ManagedExtIds($profiles) {
     return @($ids.Keys)
 }
 
+function Get-ConfigExtIds($configPath) {
+    # The extension ids actually present in the config's `extensions:` block (indent-2 keys).
+    # Used to skip managed ids that don't exist in this config instead of trying to set them.
+    $ids = @{}
+    if (-not (Test-Path -LiteralPath $configPath)) { return $ids }
+    $inExt = $false
+    foreach ($raw in (Get-Content -LiteralPath $configPath -Encoding UTF8)) {
+        $s = ([string]$raw).Trim()
+        if ($s -eq '' -or $s.StartsWith('#')) { continue }
+        $indent = ([string]$raw).Length - ([string]$raw).TrimStart(' ').Length
+        if ($indent -eq 0) { $inExt = ($s -eq 'extensions:'); continue }
+        if ($inExt -and $indent -eq 2 -and $s -match '^([A-Za-z0-9_.\-]+):\s*$') { $ids[$Matches[1]] = $true }
+    }
+    return $ids
+}
+
 function Get-ActiveProfileName($profiles, $extStates) {
     # $extStates: hashtable id -> [bool]enabled (only managed ids are compared)
     $managed = Get-ManagedExtIds $profiles
@@ -47,13 +63,16 @@ function Invoke-ProfileApply($profilesPath, $configPath, $workspaceDir, $repoRoo
     Copy-Item -LiteralPath $configPath -Destination "$configPath.bak-profile" -Force
 
     $enable = @{}; foreach ($i in $prof.enable) { $enable[[string]$i] = $true }
-    $changed = @(); $warnings = @()
+    $present = Get-ConfigExtIds $configPath
+    $changed = @(); $skipped = @(); $warnings = @()
     foreach ($id in (Get-ManagedExtIds $profiles)) {
+        # ignore managed ids that don't exist in this config -- don't try to set them
+        if (-not $present.ContainsKey($id)) { $skipped += $id; continue }
         $want = $enable.ContainsKey($id)
         try {
             if (Set-ExtensionEnabled $configPath $id $want) { $changed += $id }
         } catch {
-            $warnings += "skip ${id}: $_"     # extension absent from this config -- not fatal
+            $warnings += "skip ${id}: $_"     # unexpected write failure -- not fatal
         }
     }
 
@@ -65,5 +84,5 @@ function Invoke-ProfileApply($profilesPath, $configPath, $workspaceDir, $repoRoo
     } catch {
         $warnings += "goosehints write failed: $_"
     }
-    return @{ ok = $true; name = [string]$name; changed = $changed; warnings = $warnings }
+    return @{ ok = $true; name = [string]$name; changed = $changed; skipped = $skipped; warnings = $warnings }
 }

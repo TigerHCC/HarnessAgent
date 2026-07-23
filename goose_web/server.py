@@ -358,19 +358,13 @@ def _host_port(uri: str) -> str:
         return ""
 
 
-_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
-
-
 def _is_togglable(e: dict) -> bool:
-    """True iff a loopback streamable_http MCP (the windows_* diagnostic suite).
-
-    The 12 local diagnostic servers are all streamable_http on 127.0.0.1; dtm is
-    streamable_http but remote, and developer/memory/computercontroller are builtin.
+    """True iff a streamable_http MCP with a uri -- loopback (the windows_* diagnostic
+    suite) OR remote (dtm/pk on the GB10 box). Toggling only flips the config's enabled
+    flag, so remote MCPs are safe to toggle. builtin (developer/memory/computercontroller)
+    and stdio extensions are not togglable this way.
     """
-    if e.get("type") != "streamable_http":
-        return False
-    host = (urlparse(e.get("uri", "")).hostname or "").lower()
-    return host in _LOOPBACK_HOSTS
+    return e.get("type") == "streamable_http" and bool(e.get("uri"))
 
 
 def _atomic_write_config(path: Path, content: str) -> None:

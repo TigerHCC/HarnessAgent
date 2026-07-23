@@ -63,6 +63,18 @@ extensions:
     if (-not $threw) { throw 'unknown name should throw' }
     if ((Get-Content -Raw $cfg) -ne $before) { throw 'config modified on unknown name' }
 
+    # 5) a profile enabling an id absent from config -> that id is silently skipped (not a warning),
+    #    and no `missing:` key is invented in the config.
+    $profJson2 = Join-Path $tmp 'profiles2.json'
+    @'
+[ {"name":"gamma","label":"G","description":"d","enable":["a","missing"],"recipe":"recipes/alpha.md"} ]
+'@ | Set-Content $profJson2 -Encoding UTF8
+    $rg = Invoke-ProfileApply $profJson2 $cfg (Join-Path $tmp 'ws') $tmp 'gamma'
+    if ($rg.skipped -notcontains 'missing') { throw 'missing id should be in skipped' }
+    if (@($rg.warnings).Count -ne 0) { throw "missing id should NOT warn: $($rg.warnings -join ';')" }
+    if ((Get-Content -Raw $cfg) -notmatch '(?ms)^  a:.*?enabled: true') { throw 'a should be enabled' }
+    if ((Get-Content -Raw $cfg) -match '(?m)^  missing:') { throw 'missing key was invented in config' }
+
     Write-Host '[OK] profiles helpers pass' -ForegroundColor Green
 } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
