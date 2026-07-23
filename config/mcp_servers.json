@@ -151,5 +151,14 @@
     "run_level": "Limited",
     "description": "Fires headless `goose run` agent tasks on cron/one-shot schedules via local MCP server (127.0.0.1:8793). Runs UNELEVATED; create/update/delete/pause/resume/run_now are confirm-token gated, list/get/history/health run directly. goose_web controls it over MCP tools/call.",
     "health_tool": "scheduler_health"
+  },
+  {
+    "name": "audio",
+    "directory": "windows_audio",
+    "port": 8796,
+    "task": "mcp-audio",
+    "run_level": "Highest",
+    "description": "Windows audio diagnostics (no-multimedia/no-meeting output, mic-not-working, glitches, Bluetooth A2DP/HFP) via local elevated MCP server (127.0.0.1:8796). Read-only -- diagnoses and recommends, never changes audio settings.",
+    "health_tool": "audio_health"
   }
 ]

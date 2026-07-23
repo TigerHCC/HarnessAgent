@@ -126,6 +126,12 @@ deps beyond the other 16 modules). Mutating tools (`sched_create`, `sched_update
 its own schedule store and run logs, so it runs **UNELEVATED** (`RunLevel Limited`, like `obsidian` and
 `dtm_download`). See [`scheduler/README.md`](scheduler/README.md).
 
+### Windows Audio MCP (`windows_audio/`, 127.0.0.1:8796) — 18th canonical entry
+
+`audio` is the 18th and final entry in `config/mcp_servers.json` (registered after `scheduler`), which
+makes the canonical port set **non-contiguous**: `{8777-8793} ∪ {8796}` — ports 8794/8795 fall in that
+gap but belong to the manifest-external `markitdown`/`docstruct` servers below, not the canonical suite.
+
 ### MarkItDown MCP (`markitdown/`, 127.0.0.1:8794) — manifest-external, UNELEVATED
 
 `markitdown` wraps the official Microsoft `markitdown-mcp` package to convert documents (PDF, Office,

@@ -49,14 +49,14 @@ function Get-McpRegistry([string]$manifestPath) {
     $entries = @($decoded | ForEach-Object { $_ })
   }
   catch { throw "Invalid MCP manifest at ${manifestPath}: $_" }
-  if ($entries.Count -ne 17) { throw "MCP manifest must contain exactly 17 entries on canonical ports 8777-8793; found $($entries.Count) entries." }
+  if ($entries.Count -ne 18) { throw "MCP manifest must contain exactly 18 entries on canonical ports 8777-8793 + 8796; found $($entries.Count) entries." }
   $out = @()
   $seenNames = @{}
   $seenPorts = @{}
   $seenTasks = @{}
   $textFields = @("name","directory","task","run_level","description","health_tool")
   $integerTypes = @([byte],[sbyte],[int16],[uint16],[int32],[uint32],[int64],[uint64])
-  $expectedPorts = @(8777..8793)
+  $expectedPorts = @(8777..8793) + 8796
   foreach ($entry in $entries) {
     foreach ($field in @("name","directory","port","task","run_level","description","health_tool")) {
       if ($null -eq $entry.$field) {
@@ -75,7 +75,7 @@ function Get-McpRegistry([string]$manifestPath) {
       throw "Invalid run_level for $($entry.name): $($entry.run_level)"
     }
     if ($entry.port -notin $expectedPorts) {
-      throw "MCP manifest must use canonical ports 8777-8793 exactly once."
+      throw "MCP manifest must use canonical ports 8777-8793 + 8796 exactly once."
     }
     if ($seenNames.ContainsKey($entry.name)) { throw "MCP manifest contains duplicate name: $($entry.name)" }
     if ($seenPorts.ContainsKey($entry.port)) { throw "MCP manifest contains duplicate port: $($entry.port)" }
@@ -87,9 +87,9 @@ function Get-McpRegistry([string]$manifestPath) {
   }
   $actualPorts = @($out.port | Sort-Object)
   $portDifference = @(Compare-Object -ReferenceObject $expectedPorts -DifferenceObject $actualPorts)
-  if ($out.Count -ne 17 -or $portDifference.Count) {
+  if ($out.Count -ne 18 -or $portDifference.Count) {
     $foundPorts = if ($actualPorts.Count) { $actualPorts -join ", " } else { "none" }
-    throw "MCP manifest must contain exactly 17 entries on canonical ports 8777-8793; found $($out.Count) entries on ports: $foundPorts"
+    throw "MCP manifest must contain exactly 18 entries on canonical ports 8777-8793 + 8796; found $($out.Count) entries on ports: $foundPorts"
   }
   return $out
 }

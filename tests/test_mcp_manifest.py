@@ -106,10 +106,10 @@ def find_missing_markdown_links(root):
 
 def test_manifest_has_all_local_servers():
     entries = load_entries()
-    assert len(entries) == 17
-    assert len({e["name"] for e in entries}) == 17
-    assert len({e["task"] for e in entries}) == 17
-    assert {e["port"] for e in entries} == set(range(8777, 8794))
+    assert len(entries) == 18
+    assert len({e["name"] for e in entries}) == 18
+    assert len({e["task"] for e in entries}) == 18
+    assert {e["port"] for e in entries} == (set(range(8777, 8794)) | {8796})
 
 
 def test_manifest_entries_match_server_sources():
@@ -121,7 +121,9 @@ def test_manifest_entries_match_server_sources():
         assert len(servers) == 1, entry["name"]
         source = servers[0].read_text(encoding="utf-8")
         assert re.search(rf"FastMCP\([^\n]+port={entry['port']}\)", source)
-        assert re.search(rf"^def {re.escape(entry['health_tool'])}\(", source, re.MULTILINE)
+        assert re.search(
+            rf"^(?:async )?def {re.escape(entry['health_tool'])}\(", source, re.MULTILINE
+        )
 
 
 def test_setup_script_loads_shared_manifest():
@@ -174,7 +176,7 @@ def test_watchdog_rejects_truncated_manifest_without_probing():
             text=True,
         )
     assert completed.returncode != 0
-    assert "exactly 17 entries" in completed.stderr
+    assert "exactly 18 entries" in completed.stderr
     assert "8777-8793" in completed.stderr
 
 

@@ -20,7 +20,7 @@ MAX_REDIRECTS = 5
 MANIFEST_FIELDS = {
     "name", "directory", "port", "task", "run_level", "description", "health_tool"
 }
-CANONICAL_PORTS = set(range(8777, 8794))
+CANONICAL_PORTS = set(range(8777, 8794)) | {8796}
 
 
 class StageError(Exception):
@@ -584,8 +584,11 @@ def _parse_args(argv):
 def _validate_manifest(entries):
     if not isinstance(entries, list):
         raise ValueError("manifest root must be a list")
-    if len(entries) != 17:
-        raise ValueError(f"manifest must contain exactly 17 entries; found {len(entries)}")
+    if len(entries) != 18:
+        raise ValueError(
+            f"manifest must contain exactly 18 entries on canonical ports "
+            f"8777-8793 + 8796; found {len(entries)}"
+        )
     names = set()
     ports = set()
     tasks = set()
@@ -614,7 +617,7 @@ def _validate_manifest(entries):
         ports.add(port)
         tasks.add(entry["task"])
     if ports != CANONICAL_PORTS:
-        raise ValueError("manifest must use canonical ports 8777-8793 exactly once")
+        raise ValueError("manifest must use canonical ports 8777-8793 + 8796 exactly once")
 
 
 def _print_summary(results, report_paths):
