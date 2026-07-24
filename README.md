@@ -1,5 +1,10 @@
 # HarnessAgent — Goose on Windows/Linux → GB10 models
 
+For the verified local-model deployment on the Alienware 16 / RTX 4090 16 GB
+Windows machine, use
+[`WINDOWS_ALIENWARE_SETUP.md`](WINDOWS_ALIENWARE_SETUP.md) as the master
+four-repository runbook.
+
 A self-contained setup for the [Goose](https://github.com/aaif-goose/goose) agent harness
 that runs on a client machine and uses the **GB10 model server** (`192.168.86.44`) as its
 LLM backend. Goose is the execution/orchestration layer; models live on GB10.
@@ -57,6 +62,10 @@ Validated on the Windows 11 dev box on 2026-06-28, and re-validated the same day
 |---|---|---|---|
 | **vLLM** (default) | `:8000` (OpenAI-compat) | `qwen-3.6-chat` | Fast (tool task ~8s); needs tool-parser flag (below) |
 | vLLM embed | `:8001` (OpenAI-compat) | (embeddings) | Used by the `dtm`/`pk` RAG for embeddings |
+
+For the verified local Windows configuration (CUDA llama.cpp chat on `:8000`
+plus CPU Qwen3 embedding on `:8001`), see
+[`docs/GOOSE_LLAMACPP_WINDOWS.md`](docs/GOOSE_LLAMACPP_WINDOWS.md).
 | Ollama (fallback) | `:11434` | `qwen3.5:9b` | No GB10 flags; only 9b is fast enough for tools |
 
 GB10 vLLM is deployed via [`config/docker-compose.yaml`](config/docker-compose.yaml). **Critical flag** for

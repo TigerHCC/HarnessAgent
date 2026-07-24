@@ -1,0 +1,21 @@
+{
+  "_comment": "Central config for the Goose Harness web UI. Read by BOTH server.py and server.ps1. Server/bind settings (host/port/token/workspace/...) live here. The MODEL and PROVIDER shown in the UI are NOT set here: /api/health reads them LIVE from goose's own config.yaml (GOOSE_PROVIDER / GOOSE_MODEL / OPENAI_HOST / OLLAMA_HOST; process env vars win, exactly like goose itself; set GOOSE_CONFIG to point at a non-default config.yaml) so the UI always shows what goose actually uses. 'backends' below only defines the health-panel rows (name / health_path / role + FALLBACK url): rows with role 'chat' or 'ollama' get their URL overridden by the live OPENAI_HOST/OLLAMA_HOST, and the row matching the live provider is badged 'in use'. 'model' is a last-resort fallback if config.yaml is unreadable; 'provider_labels' maps a goose provider id to its display label. Any GOOSE_WEB_* environment variable overrides the matching value here. The sidebar tool list is live-discovered from config.yaml too (each enabled extension is handshaked over MCP for its real tools, refreshed ~90s). Files attached in the chat UI are uploaded (POST /api/upload, raw body) to workspace/<uploads_subdir>/<session>/ -- capped at max_upload_mb per file -- and the agent reads them with its own tools (developer text_editor/shell, computercontroller pdf/docx/xlsx).",
+
+  "host": "0.0.0.0",
+  "port": 8799,
+  "token": "",
+  "workspace": "../workspace",
+  "max_turns": 50,
+  "timeout_seconds": 1800,
+  "goose_bin": "",
+  "max_upload_mb": 25,
+  "uploads_subdir": "uploads",
+
+  "model": "qwen3.6-27b-q3ks",
+  "provider_labels": { "openai": "Local OpenAI-compatible server", "ollama": "Ollama" },
+
+  "backends": [
+    { "name": "llama.cpp Qwen3.6 27B Q3_K_S", "url": "http://127.0.0.1:8000", "health_path": "/health", "role": "chat" },
+    { "name": "CPU Qwen3 Embedding 4B (2560d)", "url": "http://127.0.0.1:8001", "health_path": "/health", "role": "embed" }
+  ]
+}

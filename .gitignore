@@ -21,3 +21,6 @@ workspace/uploads/
 
 # MCP server logs
 /logs/mcp/
+
+# Local Ollama fallback retained on this workstation only.
+/goose_web/start_ollama_web.ps1

@@ -30,7 +30,7 @@ GOOSE_MODEL: qwen3.6-27b-q3ks
 OPENAI_HOST: http://127.0.0.1:8000
 OPENAI_BASE_PATH: v1/chat/completions
 OPENAI_API_KEY: sk-local
-GOOSE_CONTEXT_LIMIT: 32768
+GOOSE_CONTEXT_LIMIT: 163840
 ```
 
 Goose has no independent embedding-provider field. The `pk` and `dtm` MCP

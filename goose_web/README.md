@@ -54,7 +54,7 @@ with `GOOSE_WEB_CONFIG`) for the server knobs and the health-panel layout:
   "provider_labels": { "openai": "vLLM (OpenAI-compat)", "ollama": "Ollama" },
   "backends": [
     { "name": "vLLM chat",  "url": "http://100.88.242.174:8000",  "health_path": "/v1/models", "role": "chat"  },
-    { "name": "vLLM embed", "url": "http://100.88.242.174:8001",  "health_path": "/v1/models", "role": "embed" },
+    { "name": "CPU Qwen3 embed", "url": "http://127.0.0.1:8001", "health_path": "/health", "role": "embed" },
     { "name": "Ollama",     "url": "http://100.88.242.174:11434", "health_path": "/api/tags",  "role": "ollama" }
   ]
 }
