@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 KNOWN_IDS = {
     "srum", "eventlog", "crash", "exec", "drift", "netconn", "perfmon", "disk",
-    "procinspect", "memstate", "filterstack", "winupdate", "dtmsdk", "obsidian",
+    "procinspect", "memstate", "filterstack", "winupdate", "audio", "dtmsdk", "obsidian",
     "dtm_download", "dtm_deploy", "scheduler", "markitdown", "docstruct",
     "developer", "memory", "computercontroller",
 }
@@ -45,4 +45,4 @@ def test_diag_is_plan_b_superset_of_perf_and_sec():
     diag_diagnostics = by["diag"] - {"memory", "developer"}
     ab = (by["perf"] | by["sec"]) - {"memory", "developer"}
     assert diag_diagnostics == ab           # diag = merged A-plan halves
-    assert len(diag_diagnostics) == 12
+    assert len(diag_diagnostics) == 13

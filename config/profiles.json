@@ -3,20 +3,20 @@
     "name": "diag", "label": "Diagnostics",
     "description": "Full system diagnostics (Plan B): performance, crashes, execution traces, config drift, connections, updates — one agent, routed by a tool-family index.",
     "enable": ["srum", "eventlog", "crash", "exec", "drift", "netconn", "perfmon", "disk",
-               "procinspect", "memstate", "filterstack", "winupdate", "memory", "developer"],
+               "procinspect", "memstate", "filterstack", "winupdate", "audio", "memory", "developer"],
     "recipe": "config/recipes/diag.md"
   },
   {
     "name": "perf", "label": "Performance",
     "description": "Slow / stuck / leak / failed-update diagnosis and daily health sweeps (Plan A, part 1).",
-    "enable": ["srum", "perfmon", "memstate", "disk", "procinspect", "winupdate",
+    "enable": ["srum", "perfmon", "memstate", "disk", "procinspect", "winupdate", "audio",
                "memory", "developer"],
     "recipe": "config/recipes/perf.md"
   },
   {
     "name": "sec", "label": "Forensics",
     "description": "Crash analysis, execution traces, config drift, and suspicious-connection hunting (Plan A, part 2).",
-    "enable": ["eventlog", "crash", "exec", "drift", "netconn", "filterstack", "developer"],
+    "enable": ["eventlog", "crash", "exec", "drift", "netconn", "filterstack", "audio", "developer"],
     "recipe": "config/recipes/sec.md"
   },
   {

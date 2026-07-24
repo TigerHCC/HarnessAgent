@@ -6,6 +6,7 @@
 - 即時 CPU/磁碟延遲/記憶體 → perfmon ｜ 磁碟健康/SMART/檔案變更 → disk
 - 記憶體歸因/pool 洩漏 → memstate ｜ 行程/鎖檔/hang → procinspect
 - 更新失敗/待重開機 → winupdate ｜ 歷史用量歸因 → srum
+- 聲音斷斷續續/爆音（效能性 audio glitch） → audio（audio_glitches）＋ perfmon/procinspect 找爭用行程
 - 「誰佔用/鎖住檔案、檔案無法刪除」即使未指定具體檔案，也先用 procinspect 列出目前持有最多開啟檔案 handle 的行程再回答，不要只反問。
 
 ## 規則

@@ -5,6 +5,7 @@
 ## 工具選路
 - 事件記錄 → eventlog ｜ 崩潰/BSOD → crash ｜ 執行痕跡 → exec
 - 設定/自啟動漂移 → drift ｜ 連線與擁有者 → netconn ｜ 濾網疊層 → filterstack
+- 麥克風隱私/誰在用麥克風/可疑音訊裝置 → audio（audio_microphone→audio_devices）＋ exec/netconn 追兇
 
 ## 規則
 先 health 再查詢；證據鏈完整（時間戳＋路徑＋行程）；只讀不改；每輪一個主題。

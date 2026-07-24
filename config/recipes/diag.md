@@ -13,6 +13,7 @@
 - 歷史用量歸因（CPU/網路/耗電，誰用的） → srum
 - 系統/應用事件記錄 → eventlog
 - 濾網驅動疊層（防毒/VPN 干擾） → filterstack
+- 音訊問題（無聲/無麥/斷音/藍牙） → audio（audio_health→audio_defaults 角色預設→audio_microphone→audio_bluetooth→audio_glitches）
 
 ## 規則
 1. 每一輪只使用一個家族的工具；需要跨家族時，先總結目前發現再進下一個家族。
